@@ -10,10 +10,10 @@ The Python distribution version is defined in:
 convertMissalignment/_version.py
 ```
 
-For release 0.1.11:
+For release 0.1.12:
 
 ```python
-__version__ = "0.1.11"
+__version__ = "0.1.12"
 ```
 
 `pyproject.toml` reads this value dynamically. It controls:
@@ -24,7 +24,7 @@ __version__ = "0.1.11"
 - wheel and source-distribution filenames
 - installed package metadata
 
-The top-level `VERSION` file also contains `0.1.11` for workflow provenance. Both values must be updated together for a future release.
+The top-level `VERSION` file also contains `0.1.12` for workflow provenance. Both values must be updated together for a future release.
 
 ## Pipeline version
 
@@ -58,4 +58,4 @@ Changing the package version does not imply a change to the scientific workflow.
 6. Build and install the wheel in a clean environment.
 7. Verify `convertMissalignment --version`, `where`, and `doctor`.
 8. Regenerate `CODE_MANIFEST.sha256`.
-9. Commit and create a matching Git tag, such as `v0.1.11`.
+9. Commit and create a matching Git tag, such as `v0.1.12`.

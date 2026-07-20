@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.12
+
+- `inventory` prints each artefact path on a single line, and reports the attempt that
+  produced it (`from: attempt_<jobid> (output_...)`), so a published reconstruction can be
+  traced to the job that made it without following symlinks by hand.
+- `inventory` now shows the MissAlignment input manifest and the before/smoke/full snapshot
+  directory, and the full-run manifest, instead of leaving those stages without a location.
+- Folds `status` into `inventory`, which ends with a PROJECT RECORD section listing the
+  manifests and the event count. `status` still runs and redirects.
+
 ## 0.1.11
 
 - Rewrites `inventory` as a numbered, top-to-bottom report: each stage says what it is,

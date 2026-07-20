@@ -88,7 +88,7 @@ python -m build
 Install the generated wheel:
 
 ```bash
-python -m pip install --force-reinstall dist/convertmissalignment-0.1.11-py3-none-any.whl
+python -m pip install --force-reinstall dist/convertmissalignment-0.1.12-py3-none-any.whl
 ```
 
 ## Scientific environment selection
@@ -119,7 +119,7 @@ convertMissAlignment 0.1.0
 editable source: /gpfs/cssb/user/maiorcam/software/missalign_script_v8
 ```
 
-After placing version 0.1.11 in the new directory, run:
+After placing version 0.1.12 in the new directory, run:
 
 ```bash
 cd /gpfs/cssb/user/maiorcam/software/convertMissalignment
@@ -142,7 +142,7 @@ python -m pip show convertMissAlignment
 Expected version:
 
 ```text
-0.1.11
+0.1.12
 ```
 
 The `where` command should report the new checkout as the source root for an editable installation.

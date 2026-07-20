@@ -55,9 +55,9 @@ def test_reconstruct_requires_dataset_when_ambiguous(tmp_path: Path) -> None:
     assert reconstruct([str(project), "--dataset", "5.452Apx", "--print"]) == 0
 
 
-def test_distribution_source_version_is_0_1_11() -> None:
-    assert __version__ == "0.1.11"
-    assert (ROOT / "VERSION").read_text().strip() == "0.1.11"
+def test_distribution_source_version_is_0_1_12() -> None:
+    assert __version__ == "0.1.12"
+    assert (ROOT / "VERSION").read_text().strip() == "0.1.12"
 
 
 def test_translation_condition_is_backward_compatible() -> None:
@@ -80,7 +80,7 @@ def test_module_version_command() -> None:
         check=False,
     )
     assert completed.returncode == 0, completed.stderr
-    assert "0.1.11" in completed.stdout
+    assert "0.1.12" in completed.stdout
 
 
 def test_historical_setup_help_accepts_translation() -> None:
@@ -155,5 +155,6 @@ def test_inventory_lines_stay_narrow(tmp_path: Path, capsys) -> None:
     (volume / "TS_a_very_long_series_name_raw_xf_translation_17.58Apx.mrc").write_text("v")
     assert inventory([str(project)]) == 0
     for line in capsys.readouterr().out.splitlines():
-        if not line.startswith("Path "):        # the absolute project path is one header line
-            assert len(line) <= 80, line
+        if line.startswith("Path ") or ".mrc" in line or ".png" in line:
+            continue                            # full paths are deliberately on one line
+        assert len(line) <= 80, line

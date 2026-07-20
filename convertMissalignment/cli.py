@@ -55,11 +55,6 @@ COMMANDS: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "create a lower-resolution Warp dataset",
         (),
     ),
-    "status": (
-        "prepare_imod_to_warp",
-        "show project state (defaults to the current directory)",
-        ("status",),
-    ),
     "export": (
         "export_warp_to_imod",
         "export the refined alignment back to IMOD",
@@ -327,6 +322,16 @@ def _human_size(path: Path) -> str:
     return ""
 
 
+def _origin(path: Path) -> str:
+    """Which attempt and output stage produced a published artefact."""
+    parts = path.resolve().parts
+    attempt = next((p for p in parts if p.startswith("attempt_")), "")
+    stage = next((p for p in parts if p.startswith("output_")), "")
+    if not attempt:
+        return ""
+    return f"{attempt}" + (f"  ({stage})" if stage else "")
+
+
 def _short(path: Path) -> str:
     """Path relative to the working directory when that is shorter."""
     try:
@@ -423,7 +428,7 @@ def inventory(argv: list[str]) -> int:
     print(f"Model    {condition}" + (f"\n         {note}" if note else ""))
     print(f"Dataset  {', '.join(datasets) or 'none yet'}")
 
-    def show(path: Path | None, *, view: str = "", view_arg: str = "") -> None:
+    def show(path: Path | None, *, origin: bool = False) -> None:
         if path is None or not path.exists():
             return
         try:
@@ -431,16 +436,13 @@ def inventory(argv: list[str]) -> int:
         except ValueError:
             shown = path
         size = _human_size(path) if path.is_file() else ""
-        text = f"{shown}" + (f"   ({size})" if size else "")
-        if len(text) > 62 and shown.parent != Path("."):   # keep the terminal narrow
-            _detail(f"{shown.parent}/")
-            _detail(f"  {shown.name}" + (f"   ({size})" if size else ""))
-        else:
-            _detail(text)
+        _detail(f"{shown}" + (f"   ({size})" if size else ""))
+        if origin:
+            source = _origin(path)
+            if source:
+                _detail(f"from:  {source}")
         if args.full_paths and path.resolve() != path.absolute():
-            _detail(f"  real: {path.resolve()}")
-        if view:
-            _detail(f"view:  {view} {view_arg or shown}")
+            _detail(f"real:  {path.resolve()}")
 
     for dataset in datasets:
         warp = project / "warp_data" / dataset
@@ -455,15 +457,24 @@ def inventory(argv: list[str]) -> int:
 
         volume = _first((warp / "reconstructions").glob("*/*.mrc"))
         _stage(2, "RECONSTRUCTION BEFORE MISSALIGNMENT", volume is not None)
-        _detail("Diagnostic volume of the imported data. This is the \"before\".")
-        show(volume, view="3dmod", view_arg=f"warp_data/{dataset}/reconstructions/*/*.mrc")
+        _detail("Volume of the IMPORTED data, before any refinement.")
+        _detail("The series name carries the import condition, not the stage.")
+        show(volume, origin=True)
         show(_first((warp / "reconstructions").glob("*/*.png")))
+        if volume is not None:
+            _detail(f"view:  3dmod warp_data/{dataset}/reconstructions/*/*.mrc")
         if volume is None:
             _detail("run:   convertMissalignment reconstruct")
 
         snapshots = runs / "warp_snapshot_manifest.json"
         _stage(3, "MISSALIGNMENT INPUT", snapshots.exists())
         _detail("Isolated before/smoke/full copies of the Warp project.")
+        show(snapshots if snapshots.exists() else None)
+        snapdir = project / ".internal" / "workspaces" / "missalignment" / dataset
+        if snapdir.is_dir():
+            kept = sorted(d.name for d in snapdir.glob("*") if d.is_dir())
+            _detail(f"copies: .internal/workspaces/missalignment/{dataset}/"
+                    + (f"{{{','.join(kept)}}}" if kept else ""))
         if not snapshots.exists():
             _detail("run:   convertMissalignment input --directory .")
 
@@ -476,23 +487,55 @@ def inventory(argv: list[str]) -> int:
         full = runs / "result_manifest.json"
         _stage(5, "FULL RUN", full.exists())
         _detail("The MissAlignment refinement itself.")
+        show(full if full.exists() else None)
         if not full.exists():
             _detail(f"run:   sbatch batches/missalignment/{dataset}/run_full.sbatch")
 
         pair = _first((runs / "results" / "reconstructions" / "warp_comparison").glob("*/final.mrc"))
         _stage(6, "RECONSTRUCTION AFTER MISSALIGNMENT", pair is not None)
         _detail("before.mrc and final.mrc built together, same Warp parameters.")
-        show(pair, view="3dmod",
-             view_arg=f"missalignment/runs/{dataset}/results/reconstructions/warp_comparison/*/*.mrc")
+        show(pair, origin=True)
+        if pair is not None:
+            _detail(f"view:  3dmod missalignment/runs/{dataset}/results/"
+                    "reconstructions/warp_comparison/*/*.mrc")
         if pair is None:
             _detail(f"run:   sbatch batches/missalignment/{dataset}/compare_reconstructions.sbatch")
 
         exported = _first((runs / "export" / "imod").rglob("*.rec"))
         _stage(7, "EXPORT TO IMOD", exported is not None)
         _detail("Refined alignment written back as IMOD .xf plus a reconstruction.")
-        show(exported, view="3dmod", view_arg=f"missalignment/runs/{dataset}/export/imod/**/*.rec")
+        show(exported, origin=True)
+        if exported is not None:
+            _detail(f"view:  3dmod missalignment/runs/{dataset}/export/imod/**/*.rec")
         if exported is None:
             _detail(f"run:   sbatch batches/export/{dataset}/export_imod_and_reconstruct.sbatch")
+
+    print("\nPROJECT RECORD")
+    records = [
+        ("prepare manifest", project / "provenance" / "project_prepare_manifest.json"),
+        ("code provenance", project / "provenance" / "code_provenance.json"),
+    ]
+    for dataset in datasets:
+        runs = project / "missalignment" / "runs" / dataset
+        records += [
+            ("missalignment run", runs / "missalignment_run_manifest.json"),
+            ("result manifest", runs / "result_manifest.json"),
+            ("finalize manifest", runs / "finalize_manifest.json"),
+        ]
+    for label, path in records:
+        _detail(f"{label:22}{'present' if path.exists() else '-'}")
+    events = project / "logs" / "events.jsonl"
+    if events.is_file():
+        lines = [ln for ln in events.read_text().splitlines() if ln.strip()]
+        last = ""
+        if lines:
+            try:
+                import json
+
+                last = json.loads(lines[-1]).get("event", "")
+            except Exception:
+                last = ""
+        _detail(f"{'events':22}{len(lines)}" + (f"  (last: {last})" if last else ""))
 
     print("\nUse --full-paths to resolve symlinks into .internal/")
     return 0
@@ -562,6 +605,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("where")
     subparsers.add_parser("doctor")
     subparsers.add_parser("prepare-input", add_help=False)
+    subparsers.add_parser("status", add_help=False)
     subparsers.add_parser(
         "reconstruct",
         help="reconstruct the imported Warp dataset (the step right after setup)",
@@ -592,13 +636,11 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "export":
         return export_guide(remainder)
+    if args.command == "status":                 # folded into inventory
+        print("note: 'status' is now part of 'inventory'.\n", file=sys.stderr)
+        return inventory([a for a in remainder if not a.startswith("-")][:1])
     if args.command == "prepare-input":          # historical alias
         args.command = "input"
-    if args.command == "status" and not remainder:
-        project = choose_project(".", "status")
-        if project is None:
-            return 2
-        remainder = [str(project / PROJECT_MARKER)]
 
     module_name, _, prefix = COMMANDS[args.command]
     if args.command == "setup":
