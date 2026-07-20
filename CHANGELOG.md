@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.10
+
+- Adds `convertMissalignment inventory`, which maps a project: which steps have run, where each
+  artefact lives (resolving symlinks into `.internal`), and the exact command for each missing step.
+- Adds the `missalign-inventory` console entry point.
+
 ## 0.1.9
 
 - Adds `convertMissalignment reconstruct`, which runs the Warp reconstruction of the imported

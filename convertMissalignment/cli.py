@@ -309,6 +309,121 @@ def reconstruct_main() -> int:
     return reconstruct(sys.argv[1:])
 
 
+def _human_size(path: Path) -> str:
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return ""
+    for unit in ("B", "kB", "MB", "GB", "TB"):
+        if size < 1024 or unit == "TB":
+            return f"{size:.0f} {unit}" if unit == "B" else f"{size:.1f} {unit}"
+        size /= 1024
+    return ""
+
+
+def _report(label: str, path: Path | None, project: Path, *, hint: str = "") -> None:
+    """One inventory line: state, project-relative path, and the resolved target."""
+    if path is None or not path.exists():
+        print(f"  {'--':4} {label:22} {hint or 'not produced yet'}")
+        return
+    try:
+        shown = path.relative_to(project)
+    except ValueError:
+        shown = path
+    size = _human_size(path) if path.is_file() else ""
+    print(f"  {'OK':4} {label:22} {shown}{f'  ({size})' if size else ''}")
+    resolved = path.resolve()
+    if resolved != path.absolute():
+        print(f"  {'':4} {'':22}   -> {resolved}")
+
+
+def _first(paths) -> Path | None:
+    for path in sorted(paths):
+        return path
+    return None
+
+
+def inventory(argv: list[str]) -> int:
+    """Show what has been produced for a project and where each artefact lives."""
+    parser = argparse.ArgumentParser(
+        prog=f"{Path(sys.argv[0]).name} inventory",
+        description=(
+            "Map a project: which steps have run, where the data are (resolving symlinks "
+            "into .internal), and the command to produce whatever is missing."
+        ),
+    )
+    parser.add_argument("directory", nargs="?", default=".", help="project directory")
+    parser.add_argument("--dataset", default=None, help="restrict to one dataset id")
+    args = parser.parse_args(argv)
+
+    project = Path(args.directory).expanduser().resolve()
+    settings = project / "project_settings.toml"
+    if not settings.is_file():
+        print(f"ERROR: not a project directory (no project_settings.toml): {project}", file=sys.stderr)
+        return 2
+
+    condition = "?"
+    try:
+        import tomllib
+
+        with settings.open("rb") as handle:
+            conditions = tomllib.load(handle).get("conversion", {}).get("initial_conditions") or []
+        condition = ", ".join(conditions) or "?"
+    except Exception:
+        pass
+
+    datasets = sorted(p.name for p in (project / "warp_data").glob("*") if p.is_dir())
+    if args.dataset:
+        datasets = [d for d in datasets if d == args.dataset]
+    print(f"project   : {project}")
+    print(f"condition : {condition}")
+    print(f"datasets  : {', '.join(datasets) or 'none'}")
+
+    imod = project / "imported_data" / "imod"
+    print("\nINPUT (IMOD source, symlinked)")
+    _report("raw stack", _first((imod / "data").glob("*.mrc")), project)
+    _report("aligned stack", _first((imod / "data").glob("*_ali.mrc")), project)
+    _report("original IMOD rec", _first((imod / "reconstructions" / "native").glob("*.mrc")), project)
+
+    for dataset in datasets:
+        warp = project / "warp_data" / dataset
+        runs = project / "missalignment" / "runs" / dataset
+        batches = project / "batches"
+        print(f"\n=== dataset {dataset} ===")
+
+        print("IMPORT -> WARP")
+        _report("Warp XML", _first((warp / "metadata").glob("*.xml")), project)
+        _report("tilt stack", warp / "data" / "tiltstack", project)
+
+        print("RECONSTRUCTION (before MissAlignment, diagnostic)")
+        volumes = [p for p in (warp / "reconstructions").glob("*/*.mrc")]
+        _report("volume", _first(volumes), project,
+                hint=f"convertMissalignment reconstruct {project}")
+        _report("preview PNG", _first((warp / "reconstructions").glob("*/*.png")), project)
+
+        print("MISSALIGNMENT")
+        _report("input snapshots", runs / "warp_snapshot_manifest.json", project,
+                hint=f"convertMissalignment input --directory {project}")
+        _report("smoke verdict", runs / "results" / "smoke_verdict.json", project,
+                hint=f"sbatch {batches / 'missalignment' / dataset / 'run_smoke.sbatch'}")
+        _report("full run result", runs / "result_manifest.json", project,
+                hint=f"sbatch {batches / 'missalignment' / dataset / 'run_full.sbatch'}")
+
+        print("RECONSTRUCTION (after MissAlignment)")
+        _report("warp before/final", _first((runs / "results" / "reconstructions" / "warp_comparison").glob("*/final.mrc")),
+                project, hint=f"sbatch {batches / 'missalignment' / dataset / 'compare_reconstructions.sbatch'}")
+        _report("imod before", _first((runs / "results" / "reconstructions" / "before").glob("*.rec")),
+                project, hint=f"sbatch {batches / 'missalignment' / dataset / 'reconstruct_before.sbatch'}")
+        _report("imod final export", _first((runs / "export" / "imod").rglob("*.rec")), project,
+                hint=f"sbatch {batches / 'export' / dataset / 'export_imod_and_reconstruct.sbatch'}")
+    return 0
+
+
+def inventory_main() -> int:
+    """Console entry point for ``missalign-inventory``."""
+    return inventory(sys.argv[1:])
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog=Path(sys.argv[0]).name,
@@ -329,6 +444,11 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser(
         "reconstruct",
         help="reconstruct the imported Warp dataset (the step right after setup)",
+        add_help=False,
+    )
+    subparsers.add_parser(
+        "inventory",
+        help="show what a project has produced and where the data are",
         add_help=False,
     )
     for command, (_, help_text, _) in COMMANDS.items():
@@ -353,6 +473,8 @@ def main(argv: list[str] | None = None) -> int:
         return doctor()
     if args.command == "reconstruct":
         return reconstruct(remainder)
+    if args.command == "inventory":
+        return inventory(remainder)
 
     module_name, _, prefix = COMMANDS[args.command]
     if args.command == "setup":
