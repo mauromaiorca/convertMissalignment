@@ -2,7 +2,7 @@
 
 ## Existing workflow compatibility
 
-Version 0.1.8 is designed to replace the previous editable installation without changing the historical executable name.
+Version 0.1.9 is designed to replace the previous editable installation without changing the historical executable name.
 
 The following command remains supported:
 
@@ -16,7 +16,23 @@ convertMissalignment setup \
 
 The compatibility layer converts `translation` to `raw_xf_translation`. The generated project uses the canonical name in `project_settings.toml` and in provenance records.
 
-After setup, submit the generated Warp reconstruction job:
+After setup, reconstruct the imported dataset. `setup` generates the job but never submits
+it, so run:
+
+```bash
+convertMissalignment reconstruct /path/to/output/tomo2_translation
+```
+
+It finds the generated batch, submits it with `sbatch`, and prints the log and output
+locations. Useful options:
+
+```bash
+convertMissalignment reconstruct PROJECT --dataset 5.45Apx   # when several datasets exist
+convertMissalignment reconstruct PROJECT --print             # show the command, submit nothing
+convertMissalignment reconstruct PROJECT --local             # run it here (inside an interactive allocation)
+```
+
+The equivalent manual submission remains available:
 
 ```bash
 sbatch /path/to/output/tomo2_translation/batches/warp_data/<dataset-id>/reconstruct.sbatch
@@ -53,7 +69,7 @@ convertMissalignment --version
 convertMissalignment version
 ```
 
-Both commands report package version `0.1.8`.
+Both commands report package version `0.1.9`.
 
 The bundled pipeline revision is shown by:
 

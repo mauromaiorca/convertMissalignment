@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.9
+
+- Adds `convertMissalignment reconstruct`, which runs the Warp reconstruction of the imported
+  dataset straight after `setup`: it locates the generated `batches/warp_data/<dataset>/reconstruct.sbatch`,
+  submits it with `sbatch`, and reports the log and output locations.
+- Supports `--dataset` (when a project holds several datasets), `--print` (show the command
+  without submitting) and `--local` (run the batch directly inside an interactive allocation).
+- Adds the `missalign-reconstruct` console entry point.
+
 ## 0.1.8
 
 - Keeps the historical `convertMissalignment` executable and Python entry point `convertMissalignment.cli:main`.

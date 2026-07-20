@@ -5,15 +5,51 @@ import sys
 from pathlib import Path
 
 from convertMissalignment import __version__
-from convertMissalignment.cli import normalise_setup_arguments
+from convertMissalignment.cli import find_reconstruct_batches, normalise_setup_arguments, reconstruct
 from setup_missalign_project import _normalise_conditions
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_distribution_source_version_is_0_1_8() -> None:
-    assert __version__ == "0.1.8"
-    assert (ROOT / "VERSION").read_text().strip() == "0.1.8"
+def _project(tmp_path: Path, *datasets: str) -> Path:
+    """A minimal project tree carrying only what 'reconstruct' inspects."""
+    project = tmp_path / "project"
+    (project).mkdir()
+    (project / "project_settings.toml").write_text("[project]\nbasename = 'TS'\n")
+    for dataset in datasets:
+        batch_dir = project / "batches" / "warp_data" / dataset
+        batch_dir.mkdir(parents=True)
+        (batch_dir / "reconstruct.sbatch").write_text("#!/usr/bin/env bash\ntrue\n")
+    return project
+
+
+def test_reconstruct_finds_the_generated_batch(tmp_path: Path) -> None:
+    project = _project(tmp_path, "1.363Apx")
+    found = find_reconstruct_batches(project)
+    assert [b.parent.name for b in found] == ["1.363Apx"]
+
+
+def test_reconstruct_prints_the_submission_command(tmp_path: Path, capsys) -> None:
+    project = _project(tmp_path, "1.363Apx")
+    assert reconstruct([str(project), "--print"]) == 0
+    out = capsys.readouterr().out
+    assert "1.363Apx" in out
+    assert "sbatch" in out
+
+
+def test_reconstruct_rejects_a_non_project_directory(tmp_path: Path) -> None:
+    assert reconstruct([str(tmp_path), "--print"]) == 2
+
+
+def test_reconstruct_requires_dataset_when_ambiguous(tmp_path: Path) -> None:
+    project = _project(tmp_path, "1.363Apx", "5.452Apx")
+    assert reconstruct([str(project), "--print"]) == 2
+    assert reconstruct([str(project), "--dataset", "5.452Apx", "--print"]) == 0
+
+
+def test_distribution_source_version_is_0_1_9() -> None:
+    assert __version__ == "0.1.9"
+    assert (ROOT / "VERSION").read_text().strip() == "0.1.9"
 
 
 def test_translation_condition_is_backward_compatible() -> None:
@@ -36,7 +72,7 @@ def test_module_version_command() -> None:
         check=False,
     )
     assert completed.returncode == 0, completed.stderr
-    assert "0.1.8" in completed.stdout
+    assert "0.1.9" in completed.stdout
 
 
 def test_historical_setup_help_accepts_translation() -> None:

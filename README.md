@@ -2,7 +2,7 @@
 
 `convertMissAlignment` is a command-line pipeline for importing IMOD/eTomo tilt-series projects into Warp, preparing MissAlignment inputs, generating Slurm jobs, validating reconstructions, and exporting results back to IMOD.
 
-The Python distribution version is **0.1.8**. The bundled processing pipeline is based on **MissAlignment pipeline 8.0.0-alpha6-optional-smoke-run**.
+The Python distribution version is **0.1.9**. The bundled processing pipeline is based on **MissAlignment pipeline 8.0.0-alpha6-optional-smoke-run**.
 
 ## Compatibility
 
@@ -12,7 +12,7 @@ The historical command and Python entry point are retained:
 command:       convertMissalignment
 entry point:   convertMissalignment.cli:main
 distribution:  convertMissAlignment
-version:       0.1.8
+version:       0.1.9
 ```
 
 Existing commands such as the following remain valid:
@@ -69,7 +69,7 @@ convertMissalignment doctor
 Expected package version:
 
 ```text
-0.1.8
+0.1.9
 ```
 
 `convertMissalignment where` reports the executable, Python interpreter, environment, installed package directory, and source root. This is the recommended way to identify an editable checkout.
@@ -98,7 +98,18 @@ ali_identity
 
 ### 2. Reconstruct the imported Warp dataset
 
-The setup command prints the generated dataset identifier. Submit its reconstruction job, for example:
+Setup generates the reconstruction job but never submits it. Run it straight away with:
+
+```bash
+convertMissalignment reconstruct /path/to/output/TS1
+```
+
+The command locates the generated batch, submits it with `sbatch`, and prints where the
+logs and the reconstruction will appear. Add `--dataset 5.45Apx` when the project holds
+several datasets, `--print` to only show the command, or `--local` to run it directly
+inside an interactive allocation.
+
+The manual equivalent still works:
 
 ```bash
 sbatch /path/to/output/TS1/batches/warp_data/5.45Apx/reconstruct.sbatch
@@ -172,6 +183,7 @@ The bundled `maxwell` profile contains shared cluster settings but no personal u
 
 ```text
 convertMissalignment setup       create and prepare a project
+convertMissalignment reconstruct reconstruct the imported Warp dataset
 convertMissalignment prepare     run lower-level preparation operations
 convertMissalignment input       prepare MissAlignment input snapshots
 convertMissalignment preprocess  create a lower-resolution Warp dataset

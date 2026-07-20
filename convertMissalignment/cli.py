@@ -10,6 +10,7 @@ import argparse
 import importlib
 import importlib.util
 import shutil
+import subprocess
 import sys
 from importlib import metadata
 from pathlib import Path
@@ -224,6 +225,90 @@ def doctor() -> int:
     return 0
 
 
+def find_reconstruct_batches(project: Path) -> list[Path]:
+    """Every generated Warp reconstruction batch, one per imported dataset."""
+    return sorted((project / "batches" / "warp_data").glob("*/reconstruct.sbatch"))
+
+
+def reconstruct(argv: list[str]) -> int:
+    """Reconstruct an imported Warp dataset: the step immediately after ``setup``."""
+    parser = argparse.ArgumentParser(
+        prog=f"{Path(sys.argv[0]).name} reconstruct",
+        description=(
+            "Reconstruct the imported Warp dataset. Run this straight after 'setup', "
+            "which generates the batch but never submits it."
+        ),
+    )
+    parser.add_argument("directory", nargs="?", default=".",
+                        help="project directory (default: current directory)")
+    parser.add_argument("--dataset", default=None,
+                        help="dataset id, e.g. 1.363Apx (needed only when several exist)")
+    parser.add_argument("--print", dest="print_only", action="store_true",
+                        help="print the submission command instead of running it")
+    parser.add_argument("--local", action="store_true",
+                        help="run the batch directly with bash (use inside an interactive allocation)")
+    args = parser.parse_args(argv)
+
+    project = Path(args.directory).expanduser()
+    if not (project / "project_settings.toml").is_file():
+        print(f"ERROR: not a project directory (no project_settings.toml): {project}", file=sys.stderr)
+        print("Create it first:  convertMissalignment setup --data-dir DATA --out-dir PROJECT", file=sys.stderr)
+        return 2
+
+    batches = find_reconstruct_batches(project)
+    if args.dataset:
+        batches = [b for b in batches if b.parent.name == args.dataset]
+    if not batches:
+        target = project / "batches" / "warp_data"
+        print(f"ERROR: no reconstruct.sbatch found under {target}", file=sys.stderr)
+        if args.dataset:
+            print(f"       (no dataset named {args.dataset!r})", file=sys.stderr)
+        print("       Re-run setup, or regenerate the jobs with:", file=sys.stderr)
+        print(f"       convertMissalignment prepare regenerate-jobs {project / 'project_settings.toml'}",
+              file=sys.stderr)
+        return 2
+    if len(batches) > 1:
+        print("Several datasets are available; pick one with --dataset:", file=sys.stderr)
+        for batch in batches:
+            print(f"  {batch.parent.name}", file=sys.stderr)
+        return 2
+
+    batch = batches[0]
+    dataset = batch.parent.name
+    print(f"[reconstruct] project : {project}")
+    print(f"[reconstruct] dataset : {dataset}")
+    print(f"[reconstruct] batch   : {batch}")
+
+    if args.print_only:
+        print(f"sbatch {batch}")
+        return 0
+
+    if args.local:
+        command = ["bash", str(batch)]
+    else:
+        if shutil.which("sbatch") is None:
+            print("ERROR: sbatch not found on PATH.", file=sys.stderr)
+            print("       Use --local inside an interactive allocation, or --print to see the command.",
+                  file=sys.stderr)
+            return 2
+        command = ["sbatch", str(batch)]
+
+    completed = subprocess.run(command, check=False)
+    if completed.returncode != 0:
+        print(f"ERROR: {command[0]} failed with exit code {completed.returncode}", file=sys.stderr)
+        return completed.returncode
+
+    print(f"[reconstruct] logs    : {project / 'logs' / 'warp_data' / dataset}")
+    print(f"[reconstruct] output  : {project / 'warp_data' / dataset / 'reconstructions'}")
+    print(f"[reconstruct] next    : convertMissalignment input --directory {project}")
+    return 0
+
+
+def reconstruct_main() -> int:
+    """Console entry point for ``missalign-reconstruct``."""
+    return reconstruct(sys.argv[1:])
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog=Path(sys.argv[0]).name,
@@ -241,6 +326,11 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("version", help="show the installed package version")
     subparsers.add_parser("where", help="show where the command and source are installed")
     subparsers.add_parser("doctor", help="check Python, cluster tools and application files")
+    subparsers.add_parser(
+        "reconstruct",
+        help="reconstruct the imported Warp dataset (the step right after setup)",
+        add_help=False,
+    )
     for command, (_, help_text, _) in COMMANDS.items():
         subparsers.add_parser(command, help=help_text, add_help=False)
     return parser
@@ -261,6 +351,8 @@ def main(argv: list[str] | None = None) -> int:
         return print_where()
     if args.command == "doctor":
         return doctor()
+    if args.command == "reconstruct":
+        return reconstruct(remainder)
 
     module_name, _, prefix = COMMANDS[args.command]
     if args.command == "setup":
