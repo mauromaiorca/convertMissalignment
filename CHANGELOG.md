@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.11
+
+- Rewrites `inventory` as a numbered, top-to-bottom report: each stage says what it is,
+  whether it is done, where its data are, and the command to run it. Lines stay inside a
+  standard terminal width and paths are relative to the project.
+- Merges `where` and `doctor` into `info` (installation locations plus environment check).
+  `where` and `doctor` keep working but are no longer advertised.
+- `status` now defaults to the current directory.
+- `export` with no arguments explains what export does, lists the projects it can act on,
+  and prints the exact command to run.
+- Drops `prepare-input` from the public commands; `input` is the single name. The old
+  spelling is still accepted.
+
 ## 0.1.10
 
 - Adds `convertMissalignment inventory`, which maps a project: which steps have run, where each

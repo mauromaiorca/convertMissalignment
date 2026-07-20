@@ -12,8 +12,8 @@ from convertMissalignment.cli import normalise_setup_arguments
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_distribution_version_is_0_1_10() -> None:
-    assert __version__ == "0.1.10"
+def test_distribution_version_is_0_1_11() -> None:
+    assert __version__ == "0.1.11"
 
 
 def test_legacy_translation_condition_is_normalised() -> None:

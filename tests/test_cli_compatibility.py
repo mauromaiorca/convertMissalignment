@@ -6,6 +6,9 @@ from pathlib import Path
 
 from convertMissalignment import __version__
 from convertMissalignment.cli import (
+    COMMANDS,
+    export_guide,
+    find_projects,
     find_reconstruct_batches,
     inventory,
     normalise_setup_arguments,
@@ -52,9 +55,9 @@ def test_reconstruct_requires_dataset_when_ambiguous(tmp_path: Path) -> None:
     assert reconstruct([str(project), "--dataset", "5.452Apx", "--print"]) == 0
 
 
-def test_distribution_source_version_is_0_1_10() -> None:
-    assert __version__ == "0.1.10"
-    assert (ROOT / "VERSION").read_text().strip() == "0.1.10"
+def test_distribution_source_version_is_0_1_11() -> None:
+    assert __version__ == "0.1.11"
+    assert (ROOT / "VERSION").read_text().strip() == "0.1.11"
 
 
 def test_translation_condition_is_backward_compatible() -> None:
@@ -77,7 +80,7 @@ def test_module_version_command() -> None:
         check=False,
     )
     assert completed.returncode == 0, completed.stderr
-    assert "0.1.10" in completed.stdout
+    assert "0.1.11" in completed.stdout
 
 
 def test_historical_setup_help_accepts_translation() -> None:
@@ -113,3 +116,44 @@ def test_inventory_reports_done_and_missing_steps(tmp_path: Path, capsys) -> Non
 
 def test_inventory_rejects_a_non_project_directory(tmp_path: Path) -> None:
     assert inventory([str(tmp_path)]) == 2
+
+
+def test_prepare_input_is_no_longer_a_public_command() -> None:
+    assert "prepare-input" not in COMMANDS
+    assert "input" in COMMANDS
+
+
+def test_find_projects_lists_projects_inside_a_directory(tmp_path: Path) -> None:
+    for name in ("projA", "projB"):
+        (tmp_path / name).mkdir()
+        (tmp_path / name / "project_settings.toml").write_text("[project]\n")
+    assert [p.name for p in find_projects(tmp_path)] == ["projA", "projB"]
+    assert find_projects(tmp_path / "projA") == [(tmp_path / "projA").resolve()]
+
+
+def test_export_without_arguments_explains_what_to_run(tmp_path: Path, capsys) -> None:
+    project = tmp_path / "proj"
+    (project / "batches" / "export" / "5.4Apx").mkdir(parents=True)
+    (project / "project_settings.toml").write_text("[project]\n")
+    import os
+
+    previous = os.getcwd()
+    os.chdir(project)
+    try:
+        assert export_guide([]) == 0
+    finally:
+        os.chdir(previous)
+    out = capsys.readouterr().out
+    assert "export finalize" in out
+    assert "export_imod_and_reconstruct.sbatch" in out
+
+
+def test_inventory_lines_stay_narrow(tmp_path: Path, capsys) -> None:
+    project = _project(tmp_path, "17.6Apx")
+    volume = project / "warp_data" / "17.6Apx" / "reconstructions" / "17.58Apx"
+    volume.mkdir(parents=True)
+    (volume / "TS_a_very_long_series_name_raw_xf_translation_17.58Apx.mrc").write_text("v")
+    assert inventory([str(project)]) == 0
+    for line in capsys.readouterr().out.splitlines():
+        if not line.startswith("Path "):        # the absolute project path is one header line
+            assert len(line) <= 80, line
