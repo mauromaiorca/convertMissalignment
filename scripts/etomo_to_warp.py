@@ -1,0 +1,405 @@
+#!/usr/bin/env python3
+"""Convert staged IMOD tilt-series inputs into Warp/warpylib metadata.
+
+Supported alignment modes
+-------------------------
+``identity``
+    No offsets or movement grids. Intended for an IMOD-generated ``.ali``.
+``translation``
+    Convert only the translational component of the IMOD transform.
+``full-affine``
+    Legacy v6 representation: encode the complete inverse affine as Warp
+    ``GridMovementX/Y`` while leaving the raw stack orientation unchanged.
+``quarter-turn-affine``
+    v7 representation: select one common exact 0/90/180/270-degree stack
+    permutation, materialize it losslessly in the stack, then encode only the
+    residual affine in ``GridMovementX/Y``. This keeps large near-quarter-turn
+    rotations out of the Warp movement field.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+from typing import Any
+
+import mrcfile
+import numpy as np
+import torch
+from warpylib import CubicGrid, TiltSeries
+from warpylib.ops.rescale import rescale
+
+from geometry.quarter_turn import factor_affines, transform_shape_xy
+from geometry.volume_frames import volume_frame_manifest
+from imod_affine import (
+    build_movement_grid_values,
+    diagnose_matrix,
+    inverse_physical_map,
+    read_xf,
+    transform_axis_angle_raw_to_aligned,
+    write_xf,
+)
+
+ALIGNMENT_MODES = (
+    "identity",
+    "translation",
+    "full-affine",
+    "quarter-turn-affine",
+)
+AXIS_FRAMES = ("raw", "aligned")
+
+
+def read_tilt_angles(path: Path) -> list[float]:
+    values = [float(line.strip()) for line in path.read_text().splitlines() if line.strip()]
+    if not values:
+        raise ValueError(f"no tilt angles in {path}")
+    return values
+
+
+def create_zero_grid(n_tilts: int) -> CubicGrid:
+    return CubicGrid((1, 1, max(1, n_tilts)))
+
+
+def process_tilt_series(
+    folder_path: Path,
+    output_directory: Path,
+    tilt_axis_angle: float,
+    volume_shape: tuple[int, int, int],
+    output_pixel_size: float | None,
+    alignment_mode: str,
+    axis_frame: str,
+    grid_shape_xy: tuple[int, int],
+) -> tuple[TiltSeries, Path]:
+    if alignment_mode not in ALIGNMENT_MODES:
+        raise ValueError(f"unknown alignment mode {alignment_mode!r}")
+    if axis_frame not in AXIS_FRAMES:
+        raise ValueError(f"unknown axis frame {axis_frame!r}")
+
+    folder_name = folder_path.name
+    rawtlt_path = folder_path / f"{folder_name}.rawtlt"
+    mrc_path = folder_path / f"{folder_name}.st"
+    xf_path = folder_path / f"{folder_name}.xf"
+    source_xf_path = folder_path / f"{folder_name}.source.xf"
+
+    for path, desc in (
+        (rawtlt_path, "tilt-angle"),
+        (mrc_path, "image-stack"),
+        (xf_path, "transform"),
+    ):
+        if not path.exists():
+            raise FileNotFoundError(f"{desc} file not found: {path}")
+
+    print(f"Processing {folder_name} ({alignment_mode}, axis frame={axis_frame})...")
+    tilt_angles = read_tilt_angles(rawtlt_path)
+    n_tilts = len(tilt_angles)
+
+    with mrcfile.open(mrc_path, permissive=True) as handle:
+        images = torch.tensor(np.asarray(handle.data, dtype=np.float32))
+        input_pixel_size = float(handle.voxel_size.x)
+    if images.ndim != 3:
+        raise ValueError(f"expected a 3-D tilt stack, got {tuple(images.shape)}")
+    if images.shape[0] != n_tilts:
+        raise ValueError(
+            f"stack has {images.shape[0]} sections, tilt file has {n_tilts} rows"
+        )
+    if input_pixel_size <= 0:
+        raise ValueError(f"invalid/non-positive MRC pixel size in {mrc_path}")
+
+    matrices_original, shifts_original = read_xf(xf_path)
+    if len(matrices_original) != n_tilts:
+        raise ValueError(f"XF has {len(matrices_original)} rows, expected {n_tilts}")
+
+    axis_matrices_original = matrices_original
+    if source_xf_path.exists():
+        axis_matrices_original, _ = read_xf(source_xf_path)
+        if len(axis_matrices_original) != n_tilts:
+            raise ValueError(
+                f"source XF has {len(axis_matrices_original)} rows, expected {n_tilts}"
+            )
+
+    matrices = matrices_original.copy()
+    shifts = shifts_original.copy()
+    axis_matrices = axis_matrices_original.copy()
+    axis_input_angle = float(tilt_axis_angle)
+    quarter_turn_manifest: dict[str, Any] | None = None
+    quarter_turn_k = 0
+
+    original_height, original_width = map(int, images.shape[-2:])
+    reference_shape_xy = (original_width, original_height)
+    source_volume_shape_imod_mrc_xyz = tuple(int(x) for x in volume_shape)
+
+    if alignment_mode == "quarter-turn-affine":
+        selected = factor_affines(axis_matrices_original, np.zeros((n_tilts, 2)))
+        quarter_turn_k = selected.k
+        actual = factor_affines(matrices_original, shifts_original, k=quarter_turn_k)
+        axis_factor = factor_affines(
+            axis_matrices_original,
+            np.zeros((n_tilts, 2)),
+            k=quarter_turn_k,
+        )
+        matrices = actual.residual_matrices
+        shifts = actual.residual_shifts
+        axis_matrices = axis_factor.residual_matrices
+        axis_input_angle = transform_axis_angle_raw_to_aligned(
+            tilt_axis_angle,
+            selected.quarter_turn_matrix,
+        )
+        images = torch.rot90(images, k=quarter_turn_k, dims=(-2, -1)).contiguous()
+        reference_shape_xy = transform_shape_xy(
+            (original_width, original_height), quarter_turn_k
+        )
+        quarter_turn_manifest = {
+            **selected.to_dict(),
+            "raw_shape_xy": [original_width, original_height],
+            "rotated_shape_xy": list(reference_shape_xy),
+            "raw_tilt_axis_angle_deg": float(tilt_axis_angle),
+            "rotated_tilt_axis_angle_deg": float(axis_input_angle),
+            "pixel_value_policy": "exact permutation; no interpolation",
+            "detector_rotation_axis_normal_in_warp_frame": "Z",
+            "volume_frame_policy": (
+                "The quarter turn is a detector-frame basis change only; "
+                "Warp reconstruction-volume XYZ extents remain unchanged."
+            ),
+            "quantitative_use": (
+                "Allowed as an exact detector-coordinate reindexing. The transform and "
+                "frame change must remain attached to the artifact."
+            ),
+        }
+
+    volume_frame = volume_frame_manifest(
+        source_volume_shape_imod_mrc_xyz,
+        quarter_turn_k=quarter_turn_k,
+    )
+    warp_volume_shape_xyz = tuple(volume_frame["current_shape_warp_xyz"])
+
+    final_pixel_size = input_pixel_size
+    pre_rescale_height, pre_rescale_width = map(int, images.shape[-2:])
+    if output_pixel_size is not None and output_pixel_size > input_pixel_size:
+        factor = float(output_pixel_size) / input_pixel_size
+        scaled_width = max(2, int(round(pre_rescale_width / factor / 2)) * 2)
+        scaled_height = max(2, int(round(pre_rescale_height / factor / 2)) * 2)
+        if (scaled_height, scaled_width) != (pre_rescale_height, pre_rescale_width):
+            images = rescale(images, size=(scaled_height, scaled_width))
+        final_pixel_size = input_pixel_size * pre_rescale_width / scaled_width
+    elif output_pixel_size is not None and output_pixel_size < input_pixel_size - 1e-6:
+        raise ValueError(
+            f"output pixel size {output_pixel_size} is smaller than input {input_pixel_size}; "
+            "upsampling is deliberately disabled"
+        )
+
+    stack_dir = output_directory / "tiltstack" / folder_name
+    stack_dir.mkdir(parents=True, exist_ok=True)
+    stack_path = stack_dir / f"{folder_name}.st"
+    xml_path = output_directory / f"{folder_name}.xml"
+
+    ts = TiltSeries(path=str(xml_path), n_tilts=n_tilts)
+    ts.angles = torch.tensor(tilt_angles, dtype=torch.float32)
+
+    if axis_frame == "aligned":
+        axis_angles = [
+            transform_axis_angle_raw_to_aligned(axis_input_angle, matrix)
+            for matrix in axis_matrices
+        ]
+    else:
+        axis_angles = [float(axis_input_angle)] * n_tilts
+    ts.tilt_axis_angles = torch.tensor(axis_angles, dtype=torch.float32)
+
+    height, width = map(int, images.shape[-2:])
+    ts.image_dimensions_physical = torch.tensor(
+        [width * final_pixel_size, height * final_pixel_size], dtype=torch.float32
+    )
+    ts.volume_dimensions_physical = torch.tensor(
+        [value * final_pixel_size for value in warp_volume_shape_xyz],
+        dtype=torch.float32,
+    )
+    ref_width, ref_height = reference_shape_xy
+    ts.size_rounding_factors = torch.tensor(
+        [
+            width / (ref_width * input_pixel_size / final_pixel_size),
+            height / (ref_height * input_pixel_size / final_pixel_size),
+            1.0,
+        ],
+        dtype=torch.float32,
+    )
+
+    manifest: dict[str, Any] = {
+        "schema_version": 4,
+        "series": folder_name,
+        "alignment_mode": alignment_mode,
+        "axis_frame": axis_frame,
+        "raw_tilt_axis_angle_deg": float(tilt_axis_angle),
+        "axis_angle_before_residual_affine_deg": float(axis_input_angle),
+        "warp_tilt_axis_angles_deg": axis_angles,
+        "input_stack": str(mrc_path.resolve()),
+        "output_stack": str(stack_path.resolve()),
+        "input_pixel_size_A": input_pixel_size,
+        "output_pixel_size_A": final_pixel_size,
+        "input_shape_zyx": [n_tilts, original_height, original_width],
+        "image_shape_zyx": [int(x) for x in images.shape],
+        # Legacy alias: source IMOD reconstruction MRC storage order.
+        "volume_shape_xyz": list(source_volume_shape_imod_mrc_xyz),
+        "volume_shape_frame": "imod_reconstruction_mrc_xyz__y_is_thickness",
+        "warp_volume_shape_xyz": list(warp_volume_shape_xyz),
+        "volume_frame": volume_frame,
+        "xf_file": str(xf_path.resolve()),
+        "source_xf_file": str(source_xf_path.resolve()) if source_xf_path.exists() else None,
+        "movement_grid_shape_xy": list(grid_shape_xy),
+        "coordinate_frame": (
+            "quarter_turn_stack" if alignment_mode == "quarter-turn-affine" else "raw_stack"
+        ),
+        "branch": "quantitative",
+        "half_set_policy": "no half-set assignment or mixing occurs during tilt-series conversion",
+        "allowed_uses": [
+            "geometry validation",
+            "particle picking initialization",
+            "MissAlignment input after PRE acceptance",
+            "quantitative reconstruction with attached provenance",
+        ],
+        "forbidden_uses": [
+            "silent replacement of source observations",
+            "FSC or resolution claims before cluster validation",
+        ],
+        "resampling_history": [
+            {
+                "operation": "quarter_turn" if quarter_turn_manifest is not None else "none",
+                "np_rot90_k": int(quarter_turn_k),
+                "interpolation": "none",
+            },
+            {
+                "operation": "isotropic_downsample" if final_pixel_size > input_pixel_size + 1e-6 else "none",
+                "input_pixel_size_A": input_pixel_size,
+                "output_pixel_size_A": final_pixel_size,
+                "output_shape_yx": [height, width],
+            },
+        ],
+    }
+    if quarter_turn_manifest is not None:
+        residual_xf_path = output_directory / f"{folder_name}.residual.xf"
+        write_xf(residual_xf_path, matrices, shifts)
+        manifest["quarter_turn"] = quarter_turn_manifest
+        manifest["residual_xf_file"] = str(residual_xf_path.resolve())
+
+    if alignment_mode == "identity":
+        ts.tilt_axis_offset_x = torch.zeros(n_tilts, dtype=torch.float32)
+        ts.tilt_axis_offset_y = torch.zeros(n_tilts, dtype=torch.float32)
+        ts.grid_movement_x = create_zero_grid(n_tilts)
+        ts.grid_movement_y = create_zero_grid(n_tilts)
+        manifest["offsets_xy_A"] = [[0.0, 0.0] for _ in range(n_tilts)]
+    elif alignment_mode == "translation":
+        offsets = np.zeros((n_tilts, 2), dtype=float)
+        for index, (matrix, shift) in enumerate(zip(matrices, shifts, strict=True)):
+            _, inverse_shift = inverse_physical_map(
+                matrix, shift, input_pixel_size, input_pixel_size
+            )
+            offsets[index] = inverse_shift
+        ts.tilt_axis_offset_x = torch.tensor(offsets[:, 0], dtype=torch.float32)
+        ts.tilt_axis_offset_y = torch.tensor(offsets[:, 1], dtype=torch.float32)
+        ts.grid_movement_x = create_zero_grid(n_tilts)
+        ts.grid_movement_y = create_zero_grid(n_tilts)
+        manifest["offsets_xy_A"] = offsets.tolist()
+    elif alignment_mode in ("full-affine", "quarter-turn-affine"):
+        values_x, values_y, offsets = build_movement_grid_values(
+            matrices,
+            shifts,
+            raw_shape_xy=reference_shape_xy,
+            raw_pixel_size_A=input_pixel_size,
+            aligned_pixel_size_A=input_pixel_size,
+            grid_shape_xy=grid_shape_xy,
+            grid_image_shape_xy=(width, height),
+            grid_image_pixel_size_A=final_pixel_size,
+        )
+        gx, gy = grid_shape_xy
+        ts.tilt_axis_offset_x = torch.tensor(offsets[:, 0], dtype=torch.float32)
+        ts.tilt_axis_offset_y = torch.tensor(offsets[:, 1], dtype=torch.float32)
+        ts.grid_movement_x = CubicGrid(
+            (gx, gy, n_tilts), torch.tensor(values_x, dtype=torch.float32)
+        )
+        ts.grid_movement_y = CubicGrid(
+            (gx, gy, n_tilts), torch.tensor(values_y, dtype=torch.float32)
+        )
+        manifest["offsets_xy_A"] = offsets.tolist()
+        manifest["matrix_diagnostics"] = [
+            diagnose_matrix(matrix).__dict__ for matrix in matrices
+        ]
+        manifest["movement_grid_range_A"] = {
+            "x": [float(np.min(values_x)), float(np.max(values_x))],
+            "y": [float(np.min(values_y)), float(np.max(values_y))],
+        }
+    else:  # pragma: no cover
+        raise ValueError(alignment_mode)
+
+    with mrcfile.new(stack_path, overwrite=True) as handle:
+        handle.set_data(images.cpu().numpy().astype(np.float32, copy=False))
+        handle.voxel_size = final_pixel_size
+        handle.update_header_stats()
+    ts.save_meta(str(xml_path))
+
+    manifest_path = output_directory / f"{folder_name}.conversion.json"
+    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    print(f"  Final pixel size: {final_pixel_size} Å")
+    if quarter_turn_manifest is not None:
+        print(
+            "  Quarter turn: "
+            f"np.rot90(k={quarter_turn_k}), residual rotation max "
+            f"{quarter_turn_manifest['residual_rotation_max_abs_deg']:.3f}°"
+        )
+    print(f"  Created: {xml_path}")
+    print(f"  Created: {stack_path}")
+    print(f"  Manifest: {manifest_path}")
+    return ts, xml_path
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--input-dir", type=Path, default=Path("."))
+    parser.add_argument("--output-dir", type=Path, default=Path("warp_tiltseries"))
+    parser.add_argument("--tilt-axis-angle", type=float, required=True)
+    parser.add_argument(
+        "--volume-shape",
+        type=int,
+        nargs=3,
+        required=True,
+        metavar=("IMOD_MRC_X", "IMOD_MRC_Y_THICKNESS", "IMOD_MRC_Z"),
+        help=(
+            "source IMOD reconstruction MRC shape. The converter maps "
+            "IMOD-MRC (X,Y,Z) to Warp volume (X,Z,Y). Any selected detector-plane "
+            "quarter turn changes projection coordinates only and does not swap "
+            "the Warp reconstruction-volume X/Y extents"
+        ),
+    )
+    parser.add_argument("--output-pixel-size", type=float, default=None)
+    parser.add_argument("--alignment-mode", choices=ALIGNMENT_MODES, default="translation")
+    parser.add_argument("--axis-frame", choices=AXIS_FRAMES, default="raw")
+    parser.add_argument(
+        "--movement-grid-shape",
+        type=int,
+        nargs=2,
+        default=(5, 5),
+        metavar=("NX", "NY"),
+    )
+    args = parser.parse_args()
+
+    input_directory = args.input_dir.resolve()
+    output_directory = args.output_dir.resolve()
+    output_directory.mkdir(parents=True, exist_ok=True)
+    folders = sorted(path for path in input_directory.glob("TS_*") if path.is_dir())
+    if not folders:
+        raise SystemExit(f"ERROR: no TS_* folders found in {input_directory}")
+    print(f"Found {len(folders)} TS_* folders")
+    for folder in folders:
+        process_tilt_series(
+            folder,
+            output_directory,
+            float(args.tilt_axis_angle),
+            tuple(int(x) for x in args.volume_shape),
+            args.output_pixel_size,
+            args.alignment_mode,
+            args.axis_frame,
+            tuple(int(x) for x in args.movement_grid_shape),
+        )
+    print("\nConversion complete.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

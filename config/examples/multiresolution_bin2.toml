@@ -1,0 +1,38 @@
+# Multiresolution working-data example (bin2).
+[project]
+basename = ""
+[paths]
+output_dir = ""
+[input]
+raw_stack = ""
+final_xf_file = ""
+final_tilt_file = ""
+[geometry]
+raw_dimensions_xyz = [4096, 4096, 1]
+raw_pixel_size_A = 1.36
+aligned_pixel_size_A = 1.36
+target_pixel_size_A = 1.36
+tilt_count = 41
+
+[conversion]
+initial_conditions = ["raw_xf_affine_fixed", "ali_identity"]
+
+[refinement]
+model = "rigid"
+
+[multiresolution]
+enabled = true
+extra_projection_binning = 2
+projection_method = "antialiased"
+restore_target = "source"
+preserve_physical_center = true
+
+[multiresolution.working_data]
+generate_raw = true
+generate_aligned = true
+generate_reconstruction = true
+
+[multiresolution.working_reconstruction]
+backend = "imod_tilt"
+geometry_strategy = "explicit_working_geometry"
+isotropic_voxels = true

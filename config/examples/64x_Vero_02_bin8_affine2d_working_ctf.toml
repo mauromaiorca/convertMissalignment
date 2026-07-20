@@ -1,0 +1,42 @@
+[project]
+name = "64x_Vero_02_bin8_affine2d"
+basename = "64x_Vero_02"
+
+[paths]
+data_root = "/path/to/etomo_project"
+output_dir = "/path/to/output/64x_Vero_02_bin8_affine2d"
+
+[conversion]
+initial_conditions = ["ali_identity"]
+
+[multiresolution]
+enabled = true
+extra_projection_binning = 8
+projection_method = "antialiased"
+restore_target = "source"
+preserve_physical_center = true
+
+[multiresolution.working_data]
+generate_raw = true
+generate_aligned = true
+aligned_generation = "reduce_existing_aligned"
+generate_reconstruction = true
+
+[multiresolution.working_reconstruction]
+backend = "imod_tilt"
+geometry_strategy = "explicit_working_geometry"
+isotropic_voxels = true
+
+[ctf]
+mode = "working"
+command_file = "ctfcorrection.com"
+defocus_file = "64x_Vero_02.defocus"
+angle_file = "64x_Vero_02.tlt"
+
+[missalignment]
+refinement_mode = "affine2d"
+
+[cluster]
+profile = "maxwell"
+generate_slurm = true
+submit = false

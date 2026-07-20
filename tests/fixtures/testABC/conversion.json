@@ -1,0 +1,663 @@
+{
+  "alignment_mode": "full-affine",
+  "axis_frame": "aligned",
+  "image_shape_zyx": [
+    42,
+    2046,
+    2880
+  ],
+  "input_pixel_size_A": 1.3630000352859497,
+  "input_stack": "/example/data/reconst_64x_Vero_02_NSs_for_PEET/64x_Vero_02.mrc",
+  "matrix_diagnostics": [
+    {
+      "anisotropy_ratio": 1.0000000000000002,
+      "condition_number": 1.0000000000000002,
+      "determinant": 0.99999862221937,
+      "orthogonality_error": 1.9484760529629354e-06,
+      "rotation_deg": -83.9995558882998,
+      "scale_major": 0.9999993111094477,
+      "scale_minor": 0.9999993111094476,
+      "shear_offdiag": 1.0560949674010694e-16
+    },
+    {
+      "anisotropy_ratio": 1.0000000000000002,
+      "condition_number": 1.0000000000000002,
+      "determinant": 0.99999884203069,
+      "orthogonality_error": 1.6376159030067587e-06,
+      "rotation_deg": -83.99955078905892,
+      "scale_major": 0.9999994210151775,
+      "scale_minor": 0.9999994210151774,
+      "shear_offdiag": 7.526329882525645e-17
+    },
+    {
+      "anisotropy_ratio": 1.0000000000000002,
+      "condition_number": 1.0000000000000002,
+      "determinant": 0.99999884203069,
+      "orthogonality_error": 1.6376159030067587e-06,
+      "rotation_deg": -83.99955078905892,
+      "scale_major": 0.9999994210151775,
+      "scale_minor": 0.9999994210151774,
+      "shear_offdiag": 7.526329882525645e-17
+    },
+    {
+      "anisotropy_ratio": 1.0000000000000002,
+      "condition_number": 1.0000000000000002,
+      "determinant": 0.99999884203069,
+      "orthogonality_error": 1.6376159030067587e-06,
+      "rotation_deg": -83.99955078905892,
+      "scale_major": 0.9999994210151775,
+      "scale_minor": 0.9999994210151774,
+      "shear_offdiag": 7.526329882525645e-17
+    },
+    {
+      "anisotropy_ratio": 1.0000000000000002,
+      "condition_number": 1.0000000000000002,
+      "determinant": 0.9999988211234602,
+      "orthogonality_error": 1.6671831911498802e-06,
+      "rotation_deg": -83.99955648724831,
+      "scale_major": 0.9999994105615564,
+      "scale_minor": 0.9999994105615562,
+      "shear_offdiag": 1.3363671262255404e-16
+    },
+    {
+      "anisotropy_ratio": 1.0000000000000002,
+      "condition_number": 1.0000000000000002,
+      "determinant": 0.99999884203069,
+      "orthogonality_error": 1.6376159030067587e-06,
+      "rotation_deg": -83.99955078905892,
+      "scale_major": 0.9999994210151775,
+      "scale_minor": 0.9999994210151774,
+      "shear_offdiag": 7.526329882525645e-17
+    },
+    {
+      "anisotropy_ratio": 1.0000000000000002,
+      "condition_number": 1.0000000000000002,
+      "determinant": 0.99999884203069,
+      "orthogonality_error": 1.6376159030067587e-06,
+      "rotation_deg": -83.99955078905892,
+      "scale_major": 0.9999994210151775,
+      "scale_minor": 0.9999994210151774,
+      "shear_offdiag": 7.526329882525645e-17
+    },
+    {
+      "anisotropy_ratio": 1.0000000000000002,
+      "condition_number": 1.0000000000000002,
+      "determinant": 0.99999862221937,
+      "orthogonality_error": 1.9484760529629354e-06,
+      "rotation_deg": -83.9995558882998,
+      "scale_major": 0.9999993111094477,
+      "scale_minor": 0.9999993111094476,
+      "shear_offdiag": 1.0560949674010694e-16
+    },
+    {
+      "anisotropy_ratio": 1.0000000000000002,
+      "condition_number": 1.0000000000000002,
+      "determinant": 0.99999884203069,
+      "orthogonality_error": 1.6376159030067587e-06,
+      "rotation_deg": -83.99955078905892,
+      "scale_major": 0.9999994210151775,
+      "scale_minor": 0.9999994210151774,
+      "shear_offdiag": 7.526329882525645e-17
+    },
+    {
+      "anisotropy_ratio": 1.0000000000000002,
+      "condition_number": 1.0000000000000002,
+      "determinant": 0.99999862221937,
+      "orthogonality_error": 1.9484760529629354e-06,
+      "rotation_deg": -83.9995558882998,
+      "scale_major": 0.9999993111094477,
+      "scale_minor": 0.9999993111094476,
+      "shear_offdiag": 1.0560949674010694e-16
+    },
+    {
+      "anisotropy_ratio": 1.0000000000000002,
+      "condition_number": 1.0000000000000002,
+      "determinant": 0.99999884203069,
+      "orthogonality_error": 1.6376159030067587e-06,
+      "rotation_deg": -83.99955078905892,
+      "scale_major": 0.9999994210151775,
+      "scale_minor": 0.9999994210151774,
+      "shear_offdiag": 7.526329882525645e-17
+    },
+    {
+      "anisotropy_ratio": 1.0000000000000002,
+      "condition_number": 1.0000000000000002,
+      "determinant": 0.99999884203069,
+      "orthogonality_error": 1.6376159030067587e-06,
+      "rotation_deg": -83.99955078905892,
+      "scale_major": 0.9999994210151775,
+      "scale_minor": 0.9999994210151774,
+      "shear_offdiag": 7.526329882525645e-17
+    },
+    {
+      "anisotropy_ratio": 1.0000000000000002,
+      "condition_number": 1.0000000000000002,
+      "determinant": 0.99999884203069,
+      "orthogonality_error": 1.6376159030067587e-06,
+      "rotation_deg": -83.99955078905892,
+      "scale_major": 0.9999994210151775,
+      "scale_minor": 0.9999994210151774,
+      "shear_offdiag": 7.526329882525645e-17
+    },
+    {
+      "anisotropy_ratio": 1.0000000000000002,
+      "condition_number": 1.0000000000000002,
+      "determinant": 0.99999884203069,
+      "orthogonality_error": 1.6376159030067587e-06,
+      "rotation_deg": -83.99955078905892,
+      "scale_major": 0.9999994210151775,
+      "scale_minor": 0.9999994210151774,
+      "shear_offdiag": 7.526329882525645e-17
+    },
+    {
+      "anisotropy_ratio": 1.0000000000000002,
+      "condition_number": 1.0000000000000002,
+      "determinant": 0.99999884203069,
+      "orthogonality_error": 1.6376159030067587e-06,
+      "rotation_deg": -83.99955078905892,
+      "scale_major": 0.9999994210151775,
+      "scale_minor": 0.9999994210151774,
+      "shear_offdiag": 7.526329882525645e-17
+    },
+    {
+      "anisotropy_ratio": 1.0000000000000002,
+      "condition_number": 1.0000000000000002,
+      "determinant": 0.99999884203069,
+      "orthogonality_error": 1.6376159030067587e-06,
+      "rotation_deg": -83.99955078905892,
+      "scale_major": 0.9999994210151775,
+      "scale_minor": 0.9999994210151774,
+      "shear_offdiag": 7.526329882525645e-17
+    },
+    {
+      "anisotropy_ratio": 1.0000000000000002,
+      "condition_number": 1.0000000000000002,
+      "determinant": 0.99999884203069,
+      "orthogonality_error": 1.6376159030067587e-06,
+      "rotation_deg": -83.99955078905892,
+      "scale_major": 0.9999994210151775,
+      "scale_minor": 0.9999994210151774,
+      "shear_offdiag": 7.526329882525645e-17
+    },
+    {
+      "anisotropy_ratio": 1.0000000000000002,
+      "condition_number": 1.0000000000000002,
+      "determinant": 0.99999884203069,
+      "orthogonality_error": 1.6376159030067587e-06,
+      "rotation_deg": -83.99955078905892,
+      "scale_major": 0.9999994210151775,
+      "scale_minor": 0.9999994210151774,
+      "shear_offdiag": 7.526329882525645e-17
+    },
+    {
+      "anisotropy_ratio": 1.0000000000000002,
+      "condition_number": 1.0000000000000002,
+      "determinant": 0.99999884203069,
+      "orthogonality_error": 1.6376159030067587e-06,
+      "rotation_deg": -83.99955078905892,
+      "scale_major": 0.9999994210151775,
+      "scale_minor": 0.9999994210151774,
+      "shear_offdiag": 7.526329882525645e-17
+    },
+    {
+      "anisotropy_ratio": 1.0000000000000002,
+      "condition_number": 1.0000000000000002,
+      "determinant": 0.99999884203069,
+      "orthogonality_error": 1.6376159030067587e-06,
+      "rotation_deg": -83.99955078905892,
+      "scale_major": 0.9999994210151775,
+      "scale_minor": 0.9999994210151774,
+      "shear_offdiag": 7.526329882525645e-17
+    },
+    {
+      "anisotropy_ratio": 1.0000000000000002,
+      "condition_number": 1.0000000000000002,
+      "determinant": 0.99999884203069,
+      "orthogonality_error": 1.6376159030067587e-06,
+      "rotation_deg": -83.99955078905892,
+      "scale_major": 0.9999994210151775,
+      "scale_minor": 0.9999994210151774,
+      "shear_offdiag": 7.526329882525645e-17
+    },
+    {
+      "anisotropy_ratio": 1.0000000000000002,
+      "condition_number": 1.0000000000000002,
+      "determinant": 0.99999884203069,
+      "orthogonality_error": 1.6376159030067587e-06,
+      "rotation_deg": -83.99955078905892,
+      "scale_major": 0.9999994210151775,
+      "scale_minor": 0.9999994210151774,
+      "shear_offdiag": 7.526329882525645e-17
+    },
+    {
+      "anisotropy_ratio": 1.0000000000000002,
+      "condition_number": 1.0000000000000002,
+      "determinant": 0.99999862221937,
+      "orthogonality_error": 1.9484760529629354e-06,
+      "rotation_deg": -83.9995558882998,
+      "scale_major": 0.9999993111094477,
+      "scale_minor": 0.9999993111094476,
+      "shear_offdiag": 1.0560949674010694e-16
+    },
+    {
+      "anisotropy_ratio": 1.0000000000000002,
+      "condition_number": 1.0000000000000002,
+      "determinant": 0.99999884203069,
+      "orthogonality_error": 1.6376159030067587e-06,
+      "rotation_deg": -83.99955078905892,
+      "scale_major": 0.9999994210151775,
+      "scale_minor": 0.9999994210151774,
+      "shear_offdiag": 7.526329882525645e-17
+    },
+    {
+      "anisotropy_ratio": 1.0000000000000002,
+      "condition_number": 1.0000000000000002,
+      "determinant": 0.99999884203069,
+      "orthogonality_error": 1.6376159030067587e-06,
+      "rotation_deg": -83.99955078905892,
+      "scale_major": 0.9999994210151775,
+      "scale_minor": 0.9999994210151774,
+      "shear_offdiag": 7.526329882525645e-17
+    },
+    {
+      "anisotropy_ratio": 1.0000000000000002,
+      "condition_number": 1.0000000000000002,
+      "determinant": 0.99999884203069,
+      "orthogonality_error": 1.6376159030067587e-06,
+      "rotation_deg": -83.99955078905892,
+      "scale_major": 0.9999994210151775,
+      "scale_minor": 0.9999994210151774,
+      "shear_offdiag": 7.526329882525645e-17
+    },
+    {
+      "anisotropy_ratio": 1.0000000000000002,
+      "condition_number": 1.0000000000000002,
+      "determinant": 0.99999884203069,
+      "orthogonality_error": 1.6376159030067587e-06,
+      "rotation_deg": -83.99955078905892,
+      "scale_major": 0.9999994210151775,
+      "scale_minor": 0.9999994210151774,
+      "shear_offdiag": 7.526329882525645e-17
+    },
+    {
+      "anisotropy_ratio": 1.0000000000000002,
+      "condition_number": 1.0000000000000002,
+      "determinant": 0.99999862221937,
+      "orthogonality_error": 1.9484760529629354e-06,
+      "rotation_deg": -83.9995558882998,
+      "scale_major": 0.9999993111094477,
+      "scale_minor": 0.9999993111094476,
+      "shear_offdiag": 1.0560949674010694e-16
+    },
+    {
+      "anisotropy_ratio": 1.0000000000000002,
+      "condition_number": 1.0000000000000002,
+      "determinant": 0.99999884203069,
+      "orthogonality_error": 1.6376159030067587e-06,
+      "rotation_deg": -83.99955078905892,
+      "scale_major": 0.9999994210151775,
+      "scale_minor": 0.9999994210151774,
+      "shear_offdiag": 7.526329882525645e-17
+    },
+    {
+      "anisotropy_ratio": 1.0000000000000002,
+      "condition_number": 1.0000000000000002,
+      "determinant": 0.99999884203069,
+      "orthogonality_error": 1.6376159030067587e-06,
+      "rotation_deg": -83.99955078905892,
+      "scale_major": 0.9999994210151775,
+      "scale_minor": 0.9999994210151774,
+      "shear_offdiag": 7.526329882525645e-17
+    },
+    {
+      "anisotropy_ratio": 1.0,
+      "condition_number": 1.0,
+      "determinant": 0.9999986431266,
+      "orthogonality_error": 1.918908764819814e-06,
+      "rotation_deg": -83.99955019010984,
+      "scale_major": 0.9999993215630698,
+      "scale_minor": 0.9999993215630698,
+      "shear_offdiag": 9.951469779448152e-17
+    },
+    {
+      "anisotropy_ratio": 1.0000000000000002,
+      "condition_number": 1.0000000000000002,
+      "determinant": 0.99999862221937,
+      "orthogonality_error": 1.9484760529629354e-06,
+      "rotation_deg": -83.9995558882998,
+      "scale_major": 0.9999993111094477,
+      "scale_minor": 0.9999993111094476,
+      "shear_offdiag": 1.0560949674010694e-16
+    },
+    {
+      "anisotropy_ratio": 1.0000000000000002,
+      "condition_number": 1.0000000000000002,
+      "determinant": 0.99999884203069,
+      "orthogonality_error": 1.6376159030067587e-06,
+      "rotation_deg": -83.99955078905892,
+      "scale_major": 0.9999994210151775,
+      "scale_minor": 0.9999994210151774,
+      "shear_offdiag": 7.526329882525645e-17
+    },
+    {
+      "anisotropy_ratio": 1.0000000000000002,
+      "condition_number": 1.0000000000000002,
+      "determinant": 0.99999884203069,
+      "orthogonality_error": 1.6376159030067587e-06,
+      "rotation_deg": -83.99955078905892,
+      "scale_major": 0.9999994210151775,
+      "scale_minor": 0.9999994210151774,
+      "shear_offdiag": 7.526329882525645e-17
+    },
+    {
+      "anisotropy_ratio": 1.0000000000000002,
+      "condition_number": 1.0000000000000002,
+      "determinant": 0.99999884203069,
+      "orthogonality_error": 1.6376159030067587e-06,
+      "rotation_deg": -83.99955078905892,
+      "scale_major": 0.9999994210151775,
+      "scale_minor": 0.9999994210151774,
+      "shear_offdiag": 7.526329882525645e-17
+    },
+    {
+      "anisotropy_ratio": 1.0000000000000002,
+      "condition_number": 1.0000000000000002,
+      "determinant": 0.9999988211234602,
+      "orthogonality_error": 1.6671831911498802e-06,
+      "rotation_deg": -83.99955648724831,
+      "scale_major": 0.9999994105615564,
+      "scale_minor": 0.9999994105615562,
+      "shear_offdiag": 1.3363671262255404e-16
+    },
+    {
+      "anisotropy_ratio": 1.0000000000000002,
+      "condition_number": 1.0000000000000002,
+      "determinant": 0.99999862221937,
+      "orthogonality_error": 1.9484760529629354e-06,
+      "rotation_deg": -83.9995558882998,
+      "scale_major": 0.9999993111094477,
+      "scale_minor": 0.9999993111094476,
+      "shear_offdiag": 1.0560949674010694e-16
+    },
+    {
+      "anisotropy_ratio": 1.0000000000000002,
+      "condition_number": 1.0000000000000002,
+      "determinant": 0.99999862221937,
+      "orthogonality_error": 1.9484760529629354e-06,
+      "rotation_deg": -83.9995558882998,
+      "scale_major": 0.9999993111094477,
+      "scale_minor": 0.9999993111094476,
+      "shear_offdiag": 1.0560949674010694e-16
+    },
+    {
+      "anisotropy_ratio": 1.0000000000000002,
+      "condition_number": 1.0000000000000002,
+      "determinant": 0.99999862221937,
+      "orthogonality_error": 1.9484760529629354e-06,
+      "rotation_deg": -83.9995558882998,
+      "scale_major": 0.9999993111094477,
+      "scale_minor": 0.9999993111094476,
+      "shear_offdiag": 1.0560949674010694e-16
+    },
+    {
+      "anisotropy_ratio": 1.0000000000000002,
+      "condition_number": 1.0000000000000002,
+      "determinant": 0.99999862221937,
+      "orthogonality_error": 1.9484760529629354e-06,
+      "rotation_deg": -83.9995558882998,
+      "scale_major": 0.9999993111094477,
+      "scale_minor": 0.9999993111094476,
+      "shear_offdiag": 1.0560949674010694e-16
+    },
+    {
+      "anisotropy_ratio": 1.0000000000000002,
+      "condition_number": 1.0000000000000002,
+      "determinant": 0.99999884203069,
+      "orthogonality_error": 1.6376159030067587e-06,
+      "rotation_deg": -83.99955078905892,
+      "scale_major": 0.9999994210151775,
+      "scale_minor": 0.9999994210151774,
+      "shear_offdiag": 7.526329882525645e-17
+    },
+    {
+      "anisotropy_ratio": 1.0,
+      "condition_number": 1.0,
+      "determinant": 0.9999986431266,
+      "orthogonality_error": 1.918908764819814e-06,
+      "rotation_deg": -83.99955019010984,
+      "scale_major": 0.9999993215630698,
+      "scale_minor": 0.9999993215630698,
+      "shear_offdiag": 9.951469779448152e-17
+    }
+  ],
+  "movement_grid_shape_xy": [
+    5,
+    5
+  ],
+  "offsets_xy_A": [
+    [
+      6.2023152332481555,
+      -55.3284299177647
+    ],
+    [
+      -13.846185132659715,
+      207.73082393892636
+    ],
+    [
+      75.23121779148585,
+      448.850289290835
+    ],
+    [
+      -71.2953062901878,
+      -72.92476693350878
+    ],
+    [
+      89.88502546984071,
+      533.9303322345996
+    ],
+    [
+      53.498394953030264,
+      462.0521539038754
+    ],
+    [
+      49.3369549683321,
+      435.9044238551248
+    ],
+    [
+      47.28010048984048,
+      413.53329953031374
+    ],
+    [
+      108.17569544590886,
+      617.6358295887277
+    ],
+    [
+      7.024644873928318,
+      256.6844960131079
+    ],
+    [
+      24.193374421976568,
+      305.34747800561087
+    ],
+    [
+      46.86394643369674,
+      380.8629284721287
+    ],
+    [
+      -1.6032746013915211,
+      181.45955252004498
+    ],
+    [
+      25.439859400752837,
+      287.29567186945036
+    ],
+    [
+      -9.927343955573015,
+      126.14087294735452
+    ],
+    [
+      1.7927132760477578,
+      180.96280089797915
+    ],
+    [
+      0.2677843628767849,
+      155.020360899806
+    ],
+    [
+      11.468692585806798,
+      209.28423986987113
+    ],
+    [
+      -16.512273715935674,
+      55.892703812524104
+    ],
+    [
+      -4.204857826594214,
+      96.90119845918524
+    ],
+    [
+      -5.371563191338472,
+      80.9121208388932
+    ],
+    [
+      -0.39704696144891266,
+      62.74529624575279
+    ],
+    [
+      -11.892078937141301,
+      69.42875612038831
+    ],
+    [
+      -4.951846471653591,
+      79.42896827642458
+    ],
+    [
+      -8.876617545641041,
+      60.27885337207914
+    ],
+    [
+      -7.4493863327741465,
+      43.42506126062478
+    ],
+    [
+      9.471539617078932,
+      -8.175674553296767
+    ],
+    [
+      -41.425607789309936,
+      29.7485090624963
+    ],
+    [
+      5.330345956846531,
+      -40.91083205414371
+    ],
+    [
+      -46.30780965089922,
+      -31.315313742005344
+    ],
+    [
+      3.1215051095442496,
+      -59.551951681679014
+    ],
+    [
+      -45.91221932324193,
+      -83.81316857025531
+    ],
+    [
+      -25.39172278280053,
+      -102.29013930951828
+    ],
+    [
+      -26.374910550759964,
+      -184.8422369434501
+    ],
+    [
+      -23.848993688857977,
+      -161.61994554325125
+    ],
+    [
+      -24.3316449573143,
+      -202.9284585085388
+    ],
+    [
+      -34.40389069869276,
+      -452.12486860532005
+    ],
+    [
+      -15.35198029885192,
+      -276.75195402652946
+    ],
+    [
+      -31.678355140043486,
+      -281.40187333524045
+    ],
+    [
+      -31.15026530914234,
+      -277.6555875410917
+    ],
+    [
+      312.7417643088853,
+      9.449748363677697
+    ],
+    [
+      -41.57412094881147,
+      -328.6858831178538
+    ]
+  ],
+  "output_pixel_size_A": 2.7260000705718994,
+  "output_stack": "/example/user/tomos/maerit_test/working_scripts_v5_affine/testABC/missalign_input_template/warp_raw_xf_affine_fixed/tiltstack/TS_64x_Vero_02_raw_xf_affine_fixed/TS_64x_Vero_02_raw_xf_affine_fixed.st",
+  "raw_tilt_axis_angle_deg": 84.0,
+  "schema_version": 2,
+  "series": "TS_64x_Vero_02_raw_xf_affine_fixed",
+  "source_xf_file": "/example/user/tomos/maerit_test/working_scripts_v5_affine/testABC/missalign_input_template/staging/raw_xf_affine_fixed/TS_64x_Vero_02_raw_xf_affine_fixed/TS_64x_Vero_02_raw_xf_affine_fixed.source.xf",
+  "volume_shape_xyz": [
+    4092,
+    988,
+    5760
+  ],
+  "warp_tilt_axis_angles_deg": [
+    0.0004441117002045303,
+    0.0004492109410989542,
+    0.0004492109410989542,
+    0.0004492109410989542,
+    0.00044351275170129156,
+    0.0004492109410989542,
+    0.0004492109410989542,
+    0.0004441117002045303,
+    0.0004492109410989542,
+    0.0004441117002045303,
+    0.0004492109410989542,
+    0.0004492109410989542,
+    0.0004492109410989542,
+    0.0004492109410989542,
+    0.0004492109410989542,
+    0.0004492109410989542,
+    0.0004492109410989542,
+    0.0004492109410989542,
+    0.0004492109410989542,
+    0.0004492109410989542,
+    0.0004492109410989542,
+    0.0004492109410989542,
+    0.0004441117002045303,
+    0.0004492109410989542,
+    0.0004492109410989542,
+    0.0004492109410989542,
+    0.0004492109410989542,
+    0.0004441117002045303,
+    0.0004492109410989542,
+    0.0004492109410989542,
+    0.0004498098901422054,
+    0.0004441117002045303,
+    0.0004492109410989542,
+    0.0004492109410989542,
+    0.0004492109410989542,
+    0.00044351275170129156,
+    0.0004441117002045303,
+    0.0004441117002045303,
+    0.0004441117002045303,
+    0.0004441117002045303,
+    0.0004492109410989542,
+    0.0004498098901422054
+  ],
+  "xf_file": "/example/user/tomos/maerit_test/working_scripts_v5_affine/testABC/missalign_input_template/staging/raw_xf_affine_fixed/TS_64x_Vero_02_raw_xf_affine_fixed/TS_64x_Vero_02_raw_xf_affine_fixed.xf"
+}

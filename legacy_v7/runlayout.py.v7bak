@@ -1,0 +1,105 @@
+#!/usr/bin/env python3
+"""Deterministic RUN_DIR layout for the three-phase workflow (spec §4).
+
+Every output path is known during Phase 1. A single ``RunLayout`` object is the
+authority for where things go; manifests/logs/diagnostics/jobs/final are created
+up front so a failed phase still has a place to write diagnostics.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+
+SUBDIRS = (
+    "manifests",
+    "logs", "logs/prepare", "logs/phase2", "logs/finalize",
+    "logs/commands", "logs/environment", "logs/resources",
+    "diagnostics", "diagnostics/preflight", "diagnostics/geometry",
+    "diagnostics/gradients", "diagnostics/checkpoints", "diagnostics/postmortem",
+    "diagnostics/ctf", "diagnostics/warp",
+    "working", "working/raw", "working/aligned", "working/ctf",
+    "working/reconstruction", "working/imod_project",
+    "warp",
+    "missalignment", "missalignment/configs", "missalignment/checkpoints",
+    "missalignment/results", "missalignment/logs",
+    "jobs",
+    "final", "final/transforms", "final/aligned", "final/ctf",
+    "final/reconstruction", "final/validation",
+)
+
+MANIFESTS = (
+    "source_inventory.json", "source_hashes.json", "prepare_manifest.json",
+    "job_graph.json", "phase2_manifest.json", "result_manifest.json",
+    "finalize_manifest.json", "final_validation.json",
+    "warp_staging_manifest.json", "missalign_params.json", "code_provenance.json",
+)
+
+
+@dataclass(frozen=True)
+class RunLayout:
+    run_dir: Path
+    basename: str
+    condition: str
+    refinement_mode: str
+
+    @classmethod
+    def from_settings(cls, *, out_dir: Path, basename: str, condition: str,
+                      refinement_mode: str) -> "RunLayout":
+        # Deterministic run dir: <out_dir>/<basename>_<condition>_<mode>
+        run = Path(out_dir) / f"{basename}_{condition}_{refinement_mode}"
+        return cls(run_dir=run, basename=basename, condition=condition,
+                   refinement_mode=refinement_mode)
+
+    def create(self) -> "RunLayout":
+        for sub in SUBDIRS:
+            (self.run_dir / sub).mkdir(parents=True, exist_ok=True)
+        return self
+
+    # -- well-known paths --------------------------------------------------
+    def manifest(self, name: str) -> Path:
+        if name not in MANIFESTS:
+            raise KeyError(f"unknown manifest {name!r}; known: {MANIFESTS}")
+        return self.run_dir / "manifests" / name
+
+    @property
+    def training_dir(self) -> Path:
+        return self.run_dir / "warp" / f"warp_{self.condition}"
+
+    @property
+    def config_yaml(self) -> Path:
+        return self.run_dir / "missalignment" / "configs" / "config.yaml"
+
+    @property
+    def results_dir(self) -> Path:
+        return self.run_dir / "missalignment" / "results"
+
+    @property
+    def jobs_dir(self) -> Path:
+        return self.run_dir / "jobs"
+
+    def job(self, name: str) -> Path:
+        return self.jobs_dir / name
+
+    @property
+    def final_transforms(self) -> Path:
+        return self.run_dir / "final" / "transforms"
+
+    @property
+    def final_aligned(self) -> Path:
+        return self.run_dir / "final" / "aligned"
+
+    @property
+    def final_ctf(self) -> Path:
+        return self.run_dir / "final" / "ctf"
+
+    @property
+    def final_reconstruction(self) -> Path:
+        return self.run_dir / "final" / "reconstruction"
+
+    def to_dict(self) -> dict:
+        return {
+            "run_dir": str(self.run_dir), "basename": self.basename,
+            "condition": self.condition, "refinement_mode": self.refinement_mode,
+            "training_dir": str(self.training_dir), "config_yaml": str(self.config_yaml),
+            "jobs_dir": str(self.jobs_dir),
+        }

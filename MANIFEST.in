@@ -1,0 +1,14 @@
+include README.md
+include INSTALL.md
+include USER_GUIDE.md
+include GITHUB.md
+include VERSIONING.md
+include CHANGELOG.md
+include VERSION
+include PIPELINE_VERSION
+include requirements-runtime.txt
+recursive-include config *.toml *.json
+recursive-include scripts *.sh
+recursive-include cluster_integration/missalignment_patch PINNED_VERSION README.md *.sh *.template
+prune tests
+prune legacy_v7

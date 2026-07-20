@@ -1,0 +1,88 @@
+[project]
+basename = "TS1"
+schema_version = 2
+layout_version = 8
+
+[paths]
+data_root = "/absolute/path/to/etomo_project"
+output_dir = "/absolute/path/to/TS1"
+
+[input]
+raw_stack = "/absolute/path/to/etomo_project/TS1.mrc"
+aligned_stack = "/absolute/path/to/etomo_project/TS1_ali.mrc"
+final_xf_file = "/absolute/path/to/etomo_project/TS1.xf"
+final_tilt_file = "/absolute/path/to/etomo_project/TS1.tlt"
+newst_com = "/absolute/path/to/etomo_project/newst.com"
+tilt_com = "/absolute/path/to/etomo_project/tilt.com"
+
+[geometry]
+raw_shape_xyz = [4096, 4096, 41]
+raw_pixel_size_A = 1.363
+aligned_shape_xyz = [2048, 2048, 41]
+aligned_pixel_size_A = 2.726
+target_volume_shape_xyz = [2048, 512, 2048]
+target_pixel_size_A = 2.726
+tilt_axis_angle_deg = 84.5
+
+[conversion]
+initial_conditions = ["raw_xf_affine_fixed"]
+
+[conversion.condition_modes]
+raw_xf_affine_fixed = "quarter-turn-affine"
+
+[datasets]
+native_id = "2.726Apx"
+native_pixel_size_A = 2.726
+selected_id = "2.726Apx"
+
+[missalignment]
+refinement_mode = "standard"
+result_backend = "warp_xml"
+
+[ctf]
+mode = "off"
+
+[multiresolution]
+extra_projection_binning = 1
+
+[cluster]
+profile = "maxwell"
+environment = "/absolute/path/to/missalignment-environment"
+module_init_script = "/usr/share/Modules/init/bash"
+imod_module = "imod/5.1.11"
+warp_module = "warp/2.0.39"
+partition = "vds"
+constraint = "V100"
+cpus = 16
+time = "7-00:00:00"
+
+[cluster.reconstruction_cluster]
+partition = "cssbcpu"
+cpus_per_task = 16
+memory = "64G"
+time = "08:00:00"
+
+[cluster.warptools_reconstruction_cluster]
+partition = "vds"
+constraint = "V100"
+cpus_per_task = 16
+memory = "128G"
+time = "24:00:00"
+
+[reconstruction]
+enabled = true
+backend = "imod"
+snapshots = ["pre_missalign", "smoke", "full"]
+
+[reconstruction.warptools]
+enabled = true
+executable = "WarpTools"
+output_angpix_A = 0.0
+device_list = "0"
+perdevice = 1
+
+[provenance]
+resolved = true
+discovery = "provenance/source_inventory.json"
+geometry = "provenance/geometry_manifest.json"
+hashes = "provenance/source_hashes.json"

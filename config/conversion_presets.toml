@@ -1,0 +1,12 @@
+# Conversion presets (initial conditions). Copy into [conversion].
+[recommended]
+initial_conditions = ["raw_xf_affine_fixed", "ali_identity"]
+generate_aligned_stack = true
+
+[all_conditions]
+initial_conditions = ["raw_identity", "raw_xf_translation", "raw_xf_affine_fixed", "ali_identity"]
+generate_aligned_stack = true
+
+[legacy_translation]
+initial_conditions = ["raw_xf_translation"]
+generate_aligned_stack = false

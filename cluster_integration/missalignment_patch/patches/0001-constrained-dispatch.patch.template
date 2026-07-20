@@ -1,0 +1,26 @@
+# Patch target: MissAlignment alignment dispatcher.
+#
+# Insertion point: where the per-iteration alignment type is dispatched
+# (stock handles 'global' / 'anchoring' / [N, N]). Add a branch BEFORE the
+# movement-grid branch:
+#
+#   if alignment in ("translation", "rigid", "similarity"):
+#       from miss_alignment.constrained_integration import run_constrained_iteration
+#       result = run_constrained_iteration(
+#           alignment_mode=alignment,
+#           reconstruct_and_score=<the real projector+scoring+loss closure>,
+#           initial_parameters=<warm-started params>,
+#           tilt_angles=tilt_series.tilt_angles,
+#           reconstruction_settings=<ReconstructionSettings from the real detector geometry>,
+#           result_dir=<run_dir/missalignment/results/<mode>>,
+#           telemetry_dir=<run_dir/missalignment/logs>,
+#           device="cuda",
+#       )
+#       tilt_series.apply_constrained(result)   # update the geometry from result.params
+#       continue
+#
+# The reconstruct_and_score closure must update the per-tilt geometry from the
+# differentiable detector field and return the existing MissAlignment image loss.
+#
+# Regenerate the concrete diff on the cluster:
+#   cd $MISSALIGN_SRC && git diff > 0001-constrained-dispatch.patch

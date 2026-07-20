@@ -1,0 +1,62 @@
+# Image-based constrained similarity refinement on bin8 working data (spec §25).
+# The local [refinement] math model and the real image-based [missalignment] mode
+# use the SAME constrained model classes; [missalignment.constrained] configures
+# the cluster-side optimize_constrained_2d (scopes/gauge/regularization).
+[project]
+name = "64x_Vero_02"
+basename = "64x_Vero_02"
+
+[paths]
+data_root = "/path/to/etomo_project"
+output_dir = "/path/to/output/64x_Vero_02_bin8_similarity"
+
+[geometry]
+# raw_dimensions_xyz / raw_pixel_size_A are ASSERTIONS only; the MRC header is
+# authoritative (measured at runtime). aligned_dimensions_xyz is read separately
+# from the aligned-stack header when present.
+raw_pixel_size_A = 1.36
+tilt_axis_angle_deg = 0.0
+
+[conversion]
+initial_conditions = ["ali_identity"]
+
+[multiresolution]
+enabled = true
+extra_projection_binning = 8
+thickness_source_px = 2048
+
+[ctf]
+mode = "off"          # CTF parameters, when used, come from the project ctfcorrection.com
+
+[refinement]
+model = "similarity"
+schedule = "automatic"
+coordinate_frame = "aligned_physical"
+
+[missalignment]
+refinement_mode = "similarity"   # real image-based MissAlignment mode (fork required)
+training_devices = "0"
+reconstruction_devices = "0"
+dataloaders_per_trainer = 1
+executable = "miss-alignment"
+
+[missalignment.constrained]
+translation_scope = "per_tilt"
+rotation_scope = "per_tilt"
+scale_scope = "global"           # conservative default: one shared isotropic scale
+
+[missalignment.constrained.gauge]
+translation = "zero_tilt_recenter"
+rotation = "zero_tilt_fixed"
+scale = "shared_global"
+
+[missalignment.constrained.regularization]
+translation_second_difference = 0.0
+rotation_prior = 1.0e-4
+rotation_second_difference = 1.0e-3
+log_scale_prior = 1.0e-3
+log_scale_second_difference = 0.0
+
+[external_tools]
+module_mode = "auto"
+imod_module = "imod"

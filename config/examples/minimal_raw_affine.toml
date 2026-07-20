@@ -1,0 +1,28 @@
+# Example project settings. Fill data_root/imod_dir/output_dir or pass --data-dir/--out-dir.
+[project]
+name = ""
+basename = ""
+workflow_version = "5.1-constrained"
+
+[paths]
+data_root = ""
+imod_dir = ""
+output_dir = ""
+
+[geometry]
+tilt_axis_angle_deg = 0.0
+
+[conversion]
+initial_conditions = ["raw_xf_affine_fixed"]
+generate_aligned_stack = true
+coordinate_frame = "aligned_physical"
+
+[refinement]
+model = "translation"
+schedule = "automatic"
+coordinate_frame = "aligned_physical"
+
+[external_tools]
+module_mode = "auto"
+imod_module = "imod"
+module_init_script = ""

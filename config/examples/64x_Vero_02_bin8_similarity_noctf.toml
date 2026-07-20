@@ -1,0 +1,46 @@
+# Stage: similarity refinement, no CTF (recommended early in the validation order).
+[project]
+name = "64x_Vero_02"
+basename = "64x_Vero_02"
+
+[paths]
+data_root = "/path/to/etomo_project"
+output_dir = "/path/to/output/64x_Vero_02_bin8_similarity"
+
+[geometry]
+raw_pixel_size_A = 1.36          # ASSERTION only; MRC header is authoritative
+tilt_axis_angle_deg = 0.0
+
+[conversion]
+initial_conditions = ["ali_identity"]
+
+[multiresolution]
+enabled = true
+extra_projection_binning = 8
+aligned_generation = "reduce_existing_aligned"
+restore_target = "source"
+
+[ctf]
+mode = "off"
+
+[reconstruction.working]
+enabled = true
+execution = "slurm"
+halfmaps = false
+required_by_missalignment = false
+
+[missalignment]
+refinement_mode = "similarity"
+training_devices = "0"
+reconstruction_devices = "0"
+dataloaders_per_trainer = 1
+
+[reconstruction.final]
+enabled = true
+execution = "slurm"
+halfmaps = false
+
+[cluster]
+profile = "maxwell"
+generate_slurm = true
+submit = false

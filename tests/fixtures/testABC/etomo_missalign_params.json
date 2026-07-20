@@ -1,0 +1,262 @@
+{
+  "conditions": {
+    "ali_identity": {
+      "alignment_mode": "identity",
+      "axis_frame": "aligned",
+      "description": "aligned stack + identity metadata; stack may be generated automatically with IMOD newstack",
+      "output_pixel_size_A": 2.7260000705718994,
+      "source_xf_file": "/example/data/reconst_64x_Vero_02_NSs_for_PEET/64x_Vero_02.xf",
+      "stack": "/example/data/reconst_64x_Vero_02_NSs_for_PEET/64x_Vero_02_ali.mrc",
+      "tilt_file": "/example/data/reconst_64x_Vero_02_NSs_for_PEET/64x_Vero_02.tlt",
+      "volume_shape_xyz": [
+        2046,
+        494,
+        2880
+      ],
+      "xf_file": "IDENTITY"
+    },
+    "raw_identity": {
+      "alignment_mode": "identity",
+      "axis_frame": "raw",
+      "description": "raw stack + identity transforms, control without XY alignment",
+      "output_pixel_size_A": 2.7260000705718994,
+      "source_xf_file": "/example/data/reconst_64x_Vero_02_NSs_for_PEET/64x_Vero_02.xf",
+      "stack": "/example/data/reconst_64x_Vero_02_NSs_for_PEET/64x_Vero_02.mrc",
+      "tilt_file": "/example/data/reconst_64x_Vero_02_NSs_for_PEET/64x_Vero_02.tlt",
+      "volume_shape_xyz": [
+        4092,
+        988,
+        5760
+      ],
+      "xf_file": "IDENTITY"
+    },
+    "raw_xf": {
+      "alignment_mode": "translation",
+      "axis_frame": "raw",
+      "description": "backward-compatible alias: raw stack + translation-only IMOD metadata",
+      "output_pixel_size_A": 2.7260000705718994,
+      "source_xf_file": "/example/data/reconst_64x_Vero_02_NSs_for_PEET/64x_Vero_02.xf",
+      "stack": "/example/data/reconst_64x_Vero_02_NSs_for_PEET/64x_Vero_02.mrc",
+      "tilt_file": "/example/data/reconst_64x_Vero_02_NSs_for_PEET/64x_Vero_02.tlt",
+      "volume_shape_xyz": [
+        4092,
+        988,
+        5760
+      ],
+      "xf_file": "/example/data/reconst_64x_Vero_02_NSs_for_PEET/64x_Vero_02.xf"
+    },
+    "raw_xf_affine_fixed": {
+      "alignment_mode": "full-affine",
+      "axis_frame": "aligned",
+      "description": "raw stack + complete fixed IMOD affine represented by offsets and movement grids",
+      "output_pixel_size_A": 2.7260000705718994,
+      "source_xf_file": "/example/data/reconst_64x_Vero_02_NSs_for_PEET/64x_Vero_02.xf",
+      "stack": "/example/data/reconst_64x_Vero_02_NSs_for_PEET/64x_Vero_02.mrc",
+      "tilt_file": "/example/data/reconst_64x_Vero_02_NSs_for_PEET/64x_Vero_02.tlt",
+      "volume_shape_xyz": [
+        4092,
+        988,
+        5760
+      ],
+      "xf_file": "/example/data/reconst_64x_Vero_02_NSs_for_PEET/64x_Vero_02.xf"
+    },
+    "raw_xf_translation": {
+      "alignment_mode": "translation",
+      "axis_frame": "raw",
+      "description": "raw stack + translation component derived from final IMOD .xf",
+      "output_pixel_size_A": 2.7260000705718994,
+      "source_xf_file": "/example/data/reconst_64x_Vero_02_NSs_for_PEET/64x_Vero_02.xf",
+      "stack": "/example/data/reconst_64x_Vero_02_NSs_for_PEET/64x_Vero_02.mrc",
+      "tilt_file": "/example/data/reconst_64x_Vero_02_NSs_for_PEET/64x_Vero_02.tlt",
+      "volume_shape_xyz": [
+        4092,
+        988,
+        5760
+      ],
+      "xf_file": "/example/data/reconst_64x_Vero_02_NSs_for_PEET/64x_Vero_02.xf"
+    }
+  },
+  "counts": {
+    "aligned_stack_tilts": 42,
+    "final_tilt_angles": 42,
+    "final_xf_rows": 42,
+    "raw_stack_tilts": 42,
+    "raw_tilt_angles": 42,
+    "tltxf_rows": 42
+  },
+  "etomo_dir": "/example/data/reconst_64x_Vero_02_NSs_for_PEET",
+  "files": {
+    "aligned_stack": "/example/data/reconst_64x_Vero_02_NSs_for_PEET/64x_Vero_02_ali.mrc",
+    "final_tilt": "/example/data/reconst_64x_Vero_02_NSs_for_PEET/64x_Vero_02.tlt",
+    "final_xf": "/example/data/reconst_64x_Vero_02_NSs_for_PEET/64x_Vero_02.xf",
+    "mdoc": "/example/data/20230407_RVFV_Vero_and_SW13_16hpi/64x_Vero_02.mrc.mdoc",
+    "prealigned_stack": "/example/data/reconst_64x_Vero_02_NSs_for_PEET/64x_Vero_02_preali.mrc",
+    "raw_stack": "/example/data/reconst_64x_Vero_02_NSs_for_PEET/64x_Vero_02.mrc",
+    "raw_tilt": "/example/data/reconst_64x_Vero_02_NSs_for_PEET/64x_Vero_02.rawtlt",
+    "reconstruction_stack": "/example/data/reconst_64x_Vero_02_NSs_for_PEET/64x_Vero_02_full_rec.mrc",
+    "tltxf": "/example/data/reconst_64x_Vero_02_NSs_for_PEET/64x_Vero_02.xtilt"
+  },
+  "geometry": {
+    "aligned_pixel_size_A": 2.7260000705718994,
+    "aligned_volume_shape_xyz_for_converter": [
+      2046,
+      494,
+      2880
+    ],
+    "raw_pixel_size_A": 1.3630000352859497,
+    "raw_volume_shape_xyz_for_converter": [
+      4092,
+      988,
+      5760
+    ],
+    "target_output_pixel_size_A": 2.7260000705718994,
+    "target_volume_shape_xyz": [
+      2046,
+      494,
+      2880
+    ],
+    "tilt_axis_angle_deg": 84.0,
+    "tilt_axis_angle_source": "/example/data/reconst_64x_Vero_02_NSs_for_PEET/align.com: RotationAngle"
+  },
+  "imod_dir": "/example/data/reconst_64x_Vero_02_NSs_for_PEET",
+  "imod_parameters": {
+    "fullimage_yx_from_tilt": [
+      4092,
+      5760
+    ],
+    "image_binned_from_tilt": 2,
+    "pixel_spacing_A_from_mdoc": 1.363,
+    "thickness_unbinned_px_from_tilt": 988,
+    "unbinned_pixel_size_A_from_align": 1.363,
+    "unbinned_pixel_size_nm_from_align": 0.1363
+  },
+  "mrc_headers": {
+    "aligned_stack": {
+      "cella": [
+        5577.39599609375,
+        7850.88037109375,
+        57.246002197265625
+      ],
+      "dtype": "int16",
+      "error": null,
+      "exists": true,
+      "header_nxyz": [
+        2046,
+        2880,
+        42
+      ],
+      "origin": [
+        1136.7420654296875,
+        -1136.7420654296875,
+        -0.0
+      ],
+      "path": "/example/data/reconst_64x_Vero_02_NSs_for_PEET/64x_Vero_02_ali.mrc",
+      "shape_zyx": [
+        42,
+        2880,
+        2046
+      ],
+      "voxel_size_A": [
+        2.7260000705718994,
+        2.7260000705718994,
+        1.3630000352859497
+      ]
+    },
+    "prealigned_stack": {
+      "cella": [
+        7850.88037109375,
+        5582.84814453125,
+        57.246002197265625
+      ],
+      "dtype": "int16",
+      "error": null,
+      "exists": true,
+      "header_nxyz": [
+        720,
+        512,
+        42
+      ],
+      "origin": [
+        -0.0,
+        -2.7260000705718994,
+        -0.0
+      ],
+      "path": "/example/data/reconst_64x_Vero_02_NSs_for_PEET/64x_Vero_02_preali.mrc",
+      "shape_zyx": [
+        42,
+        512,
+        720
+      ],
+      "voxel_size_A": [
+        10.904000282287598,
+        10.904000282287598,
+        1.3630000352859497
+      ]
+    },
+    "raw_stack": {
+      "cella": [
+        7850.88037109375,
+        5577.39599609375,
+        57.246002197265625
+      ],
+      "dtype": "int16",
+      "error": null,
+      "exists": true,
+      "header_nxyz": [
+        5760,
+        4092,
+        42
+      ],
+      "origin": [
+        -0.0,
+        -0.0,
+        -0.0
+      ],
+      "path": "/example/data/reconst_64x_Vero_02_NSs_for_PEET/64x_Vero_02.mrc",
+      "shape_zyx": [
+        42,
+        4092,
+        5760
+      ],
+      "voxel_size_A": [
+        1.3630000352859497,
+        1.3630000352859497,
+        1.3630000352859497
+      ]
+    },
+    "reconstruction_stack": {
+      "cella": [
+        5577.39599609375,
+        1346.64404296875,
+        7850.88037109375
+      ],
+      "dtype": "int16",
+      "error": null,
+      "exists": true,
+      "header_nxyz": [
+        2046,
+        494,
+        2880
+      ],
+      "origin": [
+        1136.7420654296875,
+        -673.322021484375,
+        -1136.7420654296875
+      ],
+      "path": "/example/data/reconst_64x_Vero_02_NSs_for_PEET/64x_Vero_02_full_rec.mrc",
+      "shape_zyx": [
+        2880,
+        494,
+        2046
+      ],
+      "voxel_size_A": [
+        2.7260000705718994,
+        2.7260000705718994,
+        2.7260000705718994
+      ]
+    }
+  },
+  "schema_version": 2,
+  "series_name": "64x_Vero_02",
+  "warnings": []
+}

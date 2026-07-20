@@ -1,0 +1,31 @@
+# Refinement presets. Copy a block into [refinement] of project_settings.toml.
+# Each preset starts from a coarse, identifiable configuration: weak components
+# (anisotropic scale, shear) are global; rotation is smoothed across tilts.
+
+[translation]
+model = "translation"
+schedule = "automatic"
+parameter_scope = { translation = "per_tilt" }
+constraints = { anchor_tilt = "closest_to_zero" }
+regularization = { translation_prior = 0.0, smoothness = 0.01, ordering = "tilt_angle" }
+
+[rigid]
+model = "rigid"
+schedule = "automatic"
+parameter_scope = { translation = "per_tilt", rotation = "per_tilt_smooth" }
+constraints = { anchor_tilt = "closest_to_zero", zero_mean_rotation = true }
+regularization = { rotation_prior = 0.01, smoothness = 0.01, ordering = "tilt_angle" }
+
+[similarity]
+model = "similarity"
+schedule = "automatic"
+parameter_scope = { translation = "per_tilt", rotation = "per_tilt_smooth", isotropic_scale = "global" }
+constraints = { anchor_tilt = "closest_to_zero", zero_mean_rotation = true, zero_mean_log_scale = true }
+regularization = { rotation_prior = 0.01, scale_prior = 0.1, smoothness = 0.01, ordering = "tilt_angle" }
+
+[affine]
+model = "affine"
+schedule = "automatic"
+parameter_scope = { translation = "per_tilt", rotation = "per_tilt_smooth", isotropic_scale = "global", anisotropic_scale = "global", shear = "global" }
+constraints = { anchor_tilt = "closest_to_zero", zero_mean_rotation = true, zero_mean_log_scale = true, zero_mean_shear = true }
+regularization = { rotation_prior = 0.01, scale_prior = 0.1, shear_prior = 0.1, smoothness = 0.01, ordering = "tilt_angle" }

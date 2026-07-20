@@ -1,0 +1,784 @@
+#!/usr/bin/env python3
+"""Generate Phase-2/Phase-3 Slurm jobs + submit helpers (spec §25-§28, §33).
+
+Pure text generation — nothing here runs Slurm/CUDA/MissAlignment. Every job
+carries: ``set -Eeuo pipefail`` + an ERR trap that writes a failure summary, a
+diagnostic preamble (env/devices/versions), and a background resource monitor.
+The generated jobs are validated STATICALLY by tests (no execution).
+"""
+from __future__ import annotations
+
+import json
+import shlex
+from types import SimpleNamespace
+from pathlib import Path
+import hashlib
+
+from .runlayout import RunLayout
+
+PYTHON = "python"  # resolved on the cluster via the activated environment
+
+
+def _sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _sha256_existing(path: Path) -> str:
+    return _sha256_file(path) if Path(path).is_file() else "unavailable"
+
+
+def _preamble(job_name: str, run_dir: Path) -> str:
+    """Common strict-mode setup and failure trap."""
+    return f'''set -Eeuo pipefail
+RUN_DIR={shlex.quote(str(run_dir))}
+JOB_NAME={shlex.quote(job_name)}
+JOB_ID="${{SLURM_JOB_ID:-local-$$}}"
+ENV_JSON="$RUN_DIR/logs/environment/${{JOB_NAME}}_${{SLURM_JOB_ID:-local}}.json"
+mkdir -p "$RUN_DIR/logs/environment" "$RUN_DIR/logs/resources" "$RUN_DIR/diagnostics/postmortem"
+
+on_error() {{
+  rc="$1"; line="$2"; cmd="$3"
+  pm="$RUN_DIR/diagnostics/postmortem"
+  {{
+    echo "{{"
+    echo "  \\"job\\": \\"$JOB_NAME\\", \\"job_id\\": \\"$JOB_ID\\","
+    echo "  \\"return_code\\": $rc, \\"failed_line\\": $line,"
+    echo "  \\"failed_command\\": \\"$(echo "$cmd" | sed 's/\\\\/\\\\\\\\/g; s/\\"/\\\\\\"/g')\\","
+    echo "  \\"hostname\\": \\"$(hostname -f 2>/dev/null || hostname)\\","
+    echo "  \\"timestamp\\": \\"$(date --iso-8601=seconds 2>/dev/null || date)\\""
+    echo "}}"
+  }} > "$pm/${{JOB_NAME}}_failure.json" || true
+  if [ "$JOB_NAME" = "phase2" ] && [ -f "$RUN_DIR/jobs/_phase2_complete.py" ]; then
+    {PYTHON} "$RUN_DIR/jobs/_phase2_complete.py" --run-dir "$RUN_DIR" --status failed \
+      --failed-line "$line" --failed-command "$cmd" || true
+  fi
+  echo "[on_error] $JOB_NAME failed rc=$rc at line $line: $cmd" >&2
+  exit "$rc"
+}}
+trap 'on_error "$?" "$LINENO" "$BASH_COMMAND"' ERR
+'''
+
+
+def _diagnostics(job_name: str, run_dir: Path) -> str:
+    """Diagnostic preamble after activation, using the selected job Python."""
+    return f'''
+JOB_PYTHON="${{PHASE3_PYTHON:-{PYTHON}}}"
+echo "===== DIAGNOSTIC PREAMBLE: $JOB_NAME ($JOB_ID) ====="
+echo "date=$(date --iso-8601=seconds 2>/dev/null || date)"
+echo "hostname=$(hostname -f 2>/dev/null || hostname)"
+echo "job_id=$JOB_ID"
+echo "partition=${{SLURM_JOB_PARTITION:-}}"
+echo "account=${{SLURM_JOB_ACCOUNT:-}}"
+echo "cpus=${{SLURM_CPUS_PER_TASK:-}}"
+echo "memory=${{SLURM_MEM_PER_NODE:-${{SLURM_MEM_PER_CPU:-}}}}"
+echo "PATH=$PATH"
+echo "LD_LIBRARY_PATH=${{LD_LIBRARY_PATH:-}}"
+echo "CONDA_PREFIX=${{CONDA_PREFIX:-}}"
+echo "IMOD_DIR=${{IMOD_DIR:-}}"
+echo "IMOD_CALIB_DIR=${{IMOD_CALIB_DIR:-}}"
+echo "JOB_PYTHON=$JOB_PYTHON"
+( module list ) 2>&1 || true
+command -v "$JOB_PYTHON" 2>/dev/null || true
+"$JOB_PYTHON" --version 2>&1 || true
+for program in submfg newstack tilt ctfphaseflip miss-alignment WarpTools WarpWorker; do
+  resolved="$(command -v "$program" 2>/dev/null || true)"
+  if [[ -n "$resolved" ]]; then echo "$program=$resolved"; fi
+done
+nvidia-smi 2>/dev/null || echo "no nvidia-smi"
+nvidia-smi -L 2>/dev/null || true
+df -h "$RUN_DIR" || true; df -i "$RUN_DIR" || true; free -h 2>/dev/null || true
+"$JOB_PYTHON" {run_dir}/jobs/_env_report.py "$JOB_NAME" > "$ENV_JSON" 2>/dev/null || \
+  echo "env-report helper unavailable" > "$ENV_JSON"
+echo "===== END PREAMBLE ====="
+'''
+
+
+def _monitor(job_name: str, run_dir: Path) -> str:
+    """Background resource monitor (spec §27) — graceful degradation, reliable kill."""
+    return f'''
+MON_TSV="$RUN_DIR/logs/resources/${{JOB_NAME}}_${{JOB_ID}}.tsv"
+echo -e "ts\\tgpu_util\\tgpu_mem_mb\\tgpu_temp\\tcpu_load\\trss_kb\\tout_dir_kb\\tlatest_ckpt" > "$MON_TSV"
+__monitor() {{
+  while true; do
+    ts="$(date +%s)"
+    gpu="$(nvidia-smi --query-gpu=utilization.gpu,memory.used,temperature.gpu --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -d ' ' || echo 'NA,NA,NA')"
+    load="$(cut -d' ' -f1 /proc/loadavg 2>/dev/null || echo NA)"
+    rss="$(ps -o rss= -p $$ 2>/dev/null | tr -d ' ' || echo NA)"
+    odir="$(du -sk "$RUN_DIR" 2>/dev/null | cut -f1 || echo NA)"
+    ckpt="$(ls -t "$RUN_DIR"/missalignment/checkpoints/* 2>/dev/null | head -1 || echo none)"
+    echo -e "$ts\\t${{gpu//,/\\t}}\\t$load\\t$rss\\t$odir\\t$ckpt" >> "$MON_TSV"
+    sleep "${{MONITOR_INTERVAL:-30}}"
+  done
+}}
+__monitor & MON_PID=$!
+cleanup_monitor() {{ kill "$MON_PID" 2>/dev/null || true; }}
+trap cleanup_monitor EXIT
+'''
+
+
+def _sbatch_header(job_name: str, *, gpu: bool, profile: str, time: str, cpus: int,
+                   run_dir: Path, cluster=None) -> str:
+    """Slurm header. Cluster fields (partition/constraint/gres/time/cpus/mem/account/
+    qos/nodelist) come from the canonical [cluster] config when provided (2.14)."""
+    c = cluster
+    part = (getattr(c, "partition", None) or "vds") if gpu else getattr(c, "cpu_partition", None)
+    lines = [f"#SBATCH --job-name={job_name}"]
+    if part:
+        lines.append(f"#SBATCH --partition={part}")
+    if gpu:
+        gres = getattr(c, "gres", None) if c else None
+        if profile == "maxwell" and part == "vds" and gres == "gpu:1":
+            gres = None
+        if gres:
+            lines.append(f"#SBATCH --gres={gres}")
+        constraint = getattr(c, "constraint", None) or "V100"
+        if constraint:
+            lines.append(f"#SBATCH --constraint={constraint}")
+    lines.append(f"#SBATCH --time={time}")
+    lines.append(f"#SBATCH --cpus-per-task={cpus}")
+    for attr, flag in (("memory", "--mem"), ("account", "--account"),
+                       ("qos", "--qos"), ("nodelist", "--nodelist")):
+        v = getattr(c, attr, None) if c else None
+        if v:
+            lines.append(f"#SBATCH {flag}={v}")
+    log_phase = "phase3" if job_name.startswith("phase3") else "phase2"
+    lines.append(f"#SBATCH --output={run_dir}/logs/{log_phase}/{job_name}_%j.out")
+    lines.append(f"#SBATCH --error={run_dir}/logs/{log_phase}/{job_name}_%j.err")
+    lines.append(f"# cluster profile: {profile}")
+    return "#!/usr/bin/env bash\n" + "\n".join(lines) + "\n"
+
+
+def _phase3_cluster(cluster, reconstruction_config: dict | None):
+    phase3 = ((reconstruction_config or {}).get("cluster") or {})
+    source = getattr(cluster, "__dict__", {}) if cluster else {}
+    data = dict(source)
+    data["cpu_partition"] = phase3.get("partition") or source.get("cpu_partition")
+    data["memory"] = phase3.get("memory") or source.get("memory")
+    data["account"] = phase3.get("account") or source.get("account")
+    data["qos"] = phase3.get("qos") or source.get("qos")
+    data["nodelist"] = phase3.get("nodelist") or source.get("nodelist")
+    data["cpus"] = int(phase3.get("cpus_per_task") or source.get("cpus") or 16)
+    return SimpleNamespace(**data), phase3
+
+
+def _phase3_warptools_cluster(cluster, reconstruction_config: dict | None):
+    """GPU resources for the diagnostic WarpTools pre/full reconstruction."""
+    rec = reconstruction_config or {}
+    wt = dict(rec.get("warptools", {}) or {})
+    phase3 = dict(rec.get("warptools_cluster", {}) or wt.get("cluster", {}) or {})
+    source = getattr(cluster, "__dict__", {}) if cluster else {}
+    data = dict(source)
+    data["partition"] = phase3.get("partition") or source.get("partition") or "vds"
+    data["constraint"] = phase3.get("constraint") or source.get("constraint") or "V100"
+    data["gres"] = phase3.get("gres") if "gres" in phase3 else source.get("gres")
+    data["memory"] = phase3.get("memory") or "128G"
+    data["account"] = phase3.get("account") or source.get("account")
+    data["qos"] = phase3.get("qos") or source.get("qos")
+    data["nodelist"] = phase3.get("nodelist") or source.get("nodelist")
+    data["cpus"] = int(phase3.get("cpus_per_task") or 16)
+    data["time"] = str(phase3.get("time") or "24:00:00")
+    return SimpleNamespace(**data), phase3
+
+
+def _phase3_warptools_activation(cluster) -> str:
+    """Strict WarpTools + scientific Python activation for the GPU job."""
+    module_init = (
+        getattr(cluster, "module_init_script", None)
+        or "/usr/share/Modules/init/bash"
+    )
+    warp_module = getattr(cluster, "warp_module", None) or "warp/2.0.39"
+    environment = getattr(cluster, "environment", None) or ""
+    python_exe = str(Path(environment) / "bin" / "python") if environment else "python"
+    return f'''
+# ---- Phase 3 WarpTools environment activation ----
+export PATH="/usr/local/bin:/usr/bin:/bin:${{PATH:-}}"
+if [[ -r {shlex.quote(module_init)} ]]; then
+  source {shlex.quote(module_init)}
+elif [[ -r /etc/profile.d/modules.sh ]]; then
+  source /etc/profile.d/modules.sh
+else
+  echo "ERROR: Environment Modules initialisation not found" >&2
+  exit 2
+fi
+module purge
+module load {shlex.quote(warp_module)}
+export LC_ALL=C
+export LANG=C
+export DOTNET_CLI_TELEMETRY_OPTOUT=1
+PHASE3_PYTHON={shlex.quote(python_exe)}
+if [[ ! -x "$PHASE3_PYTHON" ]]; then
+  echo "ERROR: Phase 3 Python is not executable: $PHASE3_PYTHON" >&2
+  exit 2
+fi
+command -v WarpTools >/dev/null 2>&1 || {{ echo "ERROR: WarpTools not found" >&2; exit 2; }}
+command -v WarpWorker >/dev/null 2>&1 || {{ echo "ERROR: WarpWorker not found" >&2; exit 2; }}
+"$PHASE3_PYTHON" - <<'PY_WT_PREFLIGHT'
+import sys
+import mrcfile
+import numpy
+import warpylib
+print("WarpTools reconstruction Python:", sys.executable)
+print("NumPy:", numpy.__version__)
+print("mrcfile:", mrcfile.__version__)
+print("warpylib:", getattr(warpylib, "__version__", "unknown"))
+PY_WT_PREFLIGHT
+'''
+
+
+def _phase2_activation(cluster) -> str:
+    """GPU/Warp/MissAlignment activation from [cluster]."""
+    if cluster is None:
+        return "\n# (no [cluster] env config; relying on a pre-activated shell)\n"
+    out = ["", "# ---- Phase 2 environment activation (from [cluster]) ----"]
+    if getattr(cluster, "module_init_script", None):
+        out.append(f'[ -f {shlex.quote(cluster.module_init_script)} ] && source {shlex.quote(cluster.module_init_script)} || true')
+    if getattr(cluster, "warp_module", None):
+        out.append(f'module load {shlex.quote(cluster.warp_module)} 2>/dev/null || true')
+    if getattr(cluster, "environment", None):
+        env = cluster.environment
+        out.append(f'if [ -f {shlex.quote(env + "/bin/activate")} ]; then source {shlex.quote(env + "/bin/activate")}; '
+                   f'else export PATH={shlex.quote(env + "/bin")}:"$PATH"; fi')
+    if getattr(cluster, "omp_num_threads", None):
+        out.append(f'export OMP_NUM_THREADS={cluster.omp_num_threads}')
+    if getattr(cluster, "cuda_visible_devices", None):
+        out.append(f'export CUDA_VISIBLE_DEVICES={cluster.cuda_visible_devices}')
+    out.append("which miss-alignment || true; which WarpTools || true; which WarpWorker || true")
+    out.append("")
+    return "\n".join(out) + "\n"
+
+
+def _phase3_imod_activation(cluster, reconstruction_config: dict | None) -> str:
+    """Activate IMOD while keeping the configured scientific Python explicit."""
+    rec = reconstruction_config or {}
+    imod = (rec.get("imod") or {})
+    module_init = getattr(cluster, "module_init_script", None) or imod.get("module_init_script") or "/usr/share/Modules/init/bash"
+    imod_module = imod.get("imod_module") or getattr(cluster, "imod_module", None) or "imod/5.1.11"
+    env = str(getattr(cluster, "environment", None) or "")
+    python_exe = str(Path(env) / "bin" / "python") if env else "python"
+    imod_bin = imod.get("imod_bin_dir") or getattr(cluster, "imod_bin_dir", None) or ""
+    return f'''
+# ---- Phase 3 IMOD environment activation ----
+export PATH="/usr/local/bin:/usr/bin:/bin:${{PATH:-}}"
+if [[ -r {shlex.quote(module_init)} ]]; then
+  source {shlex.quote(module_init)}
+elif [[ -r /etc/profile.d/modules.sh ]]; then
+  source /etc/profile.d/modules.sh
+else
+  echo "ERROR: Environment Modules initialisation not found" >&2
+  exit 2
+fi
+module purge
+module load {shlex.quote(imod_module)}
+PHASE3_PYTHON={shlex.quote(python_exe)}
+if [[ {shlex.quote(env)} != "" ]]; then
+  export PATH={shlex.quote(env + "/bin")}:"$PATH"
+fi
+if [[ "$PHASE3_PYTHON" != */* ]]; then
+  PHASE3_PYTHON="$(command -v "$PHASE3_PYTHON" 2>/dev/null || true)"
+fi
+if [[ -z "$PHASE3_PYTHON" || ! -x "$PHASE3_PYTHON" ]]; then
+  echo "ERROR: configured Phase 3 Python is not executable: {python_exe}" >&2
+  exit 2
+fi
+IMOD_BIN={shlex.quote(imod_bin)}
+if [[ -n "$IMOD_BIN" ]]; then export PATH="$IMOD_BIN:$PATH"; fi
+for program in submfg newstack tilt; do
+  command -v "$program" >/dev/null 2>&1 || {{
+    echo "ERROR: missing IMOD executable: $program" >&2
+    exit 2
+  }}
+done
+"$PHASE3_PYTHON" - <<'PY_IMOD_PREFLIGHT'
+import sys
+if sys.version_info < (3, 11):
+    raise SystemExit(
+        f"ERROR: Phase 3 IMOD requires Python >=3.11; got {{sys.version.split()[0]}} "
+        f"at {{sys.executable}}"
+    )
+import tomllib
+import mrcfile
+import numpy
+import warpylib
+print("Phase 3 IMOD Python:", sys.executable)
+print("Python:", sys.version.split()[0])
+print("NumPy:", numpy.__version__)
+print("mrcfile:", mrcfile.__version__)
+print("warpylib:", getattr(warpylib, "__version__", "unknown"))
+PY_IMOD_PREFLIGHT
+'''
+
+
+def _smoke_verdict_helper() -> str:
+    """Validate actual outputs in the isolated smoke Warp project."""
+    return r'''#!/usr/bin/env python3
+import argparse, json, pathlib, re
+ap = argparse.ArgumentParser()
+ap.add_argument("--run-dir", required=True)
+ap.add_argument("--training-dir", required=True)
+ap.add_argument("--log", required=True)
+ap.add_argument("--mode", required=True)
+a = ap.parse_args()
+rd = pathlib.Path(a.run_dir)
+training = pathlib.Path(a.training_dir)
+log = pathlib.Path(a.log)
+checks = {}
+xmls = [p for p in training.glob("*.xml") if p.is_file() and p.stat().st_size > 0]
+iters = [p for p in training.glob("iter*") if p.is_dir()]
+ckpts = [p for p in training.rglob("*.ckpt") if p.is_file() and p.stat().st_size > 0]
+checks["root_xml_count"] = len(xmls)
+checks["iteration_dirs"] = len(iters)
+checks["checkpoints"] = len(ckpts)
+checks["log_nonempty"] = log.is_file() and log.stat().st_size > 0
+bad = False
+if log.is_file():
+    text = log.read_text(errors="ignore")
+    bad = bool(re.search(r"(?<![A-Za-z])(?:nan|inf)(?![A-Za-z])", text, re.I))
+checks["no_nan_inf_in_log"] = not bad
+checks["same_project_has_tiltstack"] = bool(list((training / "tiltstack").glob("*/*.st")))
+ok = (len(xmls) == 1 and len(iters) >= 1 and len(ckpts) >= 1 and
+      checks["log_nonempty"] and checks["no_nan_inf_in_log"] and
+      checks["same_project_has_tiltstack"])
+verdict = {
+    "smoke": "ok" if ok else "failed",
+    "mode": a.mode,
+    "training_directory": str(training),
+    "log": str(log),
+    "checks": checks,
+    "xml": str(xmls[0]) if len(xmls) == 1 else None,
+    "checkpoints": [str(p) for p in ckpts],
+    "iteration_directories": [str(p) for p in iters],
+}
+out = rd / "missalignment" / "results" / "smoke_verdict.json"
+out.parent.mkdir(parents=True, exist_ok=True)
+out.write_text(json.dumps(verdict, indent=2) + "\n")
+print("smoke verdict:", verdict["smoke"], checks)
+raise SystemExit(0 if ok else 1)
+'''
+
+
+def _env_report_helper() -> str:
+    return '''#!/usr/bin/env python3
+"""Tiny env reporter invoked from the Slurm preamble (no repo imports required)."""
+import json, os, sys, platform
+name = sys.argv[1] if len(sys.argv) > 1 else "job"
+rep = {"job": name, "sys_executable": sys.executable, "python_version": sys.version,
+       "sys_path": sys.path, "platform": platform.platform(),
+       "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES")}
+try:
+    import torch
+    rep["torch_version"] = torch.__version__
+    rep["cuda_available"] = bool(torch.cuda.is_available())
+    rep["cuda_build"] = getattr(torch.version, "cuda", None)
+    if torch.cuda.is_available():
+        rep["devices"] = [torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count())]
+except Exception as e:
+    rep["torch_error"] = str(e)
+for mod in ("warpylib", "torch_projectors", "miss_alignment"):
+    try:
+        import importlib.util
+        spec = importlib.util.find_spec(mod)
+        rep[mod + "_path"] = spec.origin if spec else None
+    except Exception as e:
+        rep[mod + "_error"] = str(e)
+print(json.dumps(rep, indent=2, default=str))
+'''
+
+
+def _phase2_complete_helper() -> str:
+    return '''#!/usr/bin/env python3
+import argparse, json, os, re, socket, tempfile
+from datetime import datetime, timezone
+from pathlib import Path
+
+STAGES = ["preflight", "warp_conversion", "warp_validation", "smoke", "smoke_verdict", "full_run"]
+
+def atomic_json(path, data):
+    path = Path(path); path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=str(path.parent))
+    with os.fdopen(fd, "w") as fh:
+        json.dump(data, fh, indent=2)
+        fh.write("\\n")
+    os.replace(tmp, path)
+
+def load_json(path):
+    return json.loads(path.read_text()) if path.is_file() else {}
+
+def explicit_log_xml(path):
+    if not path or not Path(path).is_file():
+        return []
+    pat = re.compile(r"^(?:FINAL_XML|final_xml)\\s*[:=]\\s*(\\S+\\.xml)\\s*$")
+    found = []
+    for line in Path(path).read_text(errors="ignore").splitlines():
+        m = pat.search(line.strip())
+        if m:
+            found.append(m.group(1))
+    return found
+
+def explicit_log_iteration(path):
+    if not path or not Path(path).is_file():
+        return None
+    pat = re.compile(r"^(?:FINAL_ITERATION|final_iteration)\\s*[:=]\\s*(\\d+)\\s*$")
+    found = []
+    for line in Path(path).read_text(errors="ignore").splitlines():
+        m = pat.search(line.strip())
+        if m:
+            found.append(int(m.group(1)))
+    found = list(dict.fromkeys(found))
+    if len(found) > 1:
+        raise SystemExit(f"ERROR: ambiguous final iteration markers in {path}: {found}")
+    return found[0] if found else None
+
+def validate_xml(value):
+    if not value:
+        return None
+    p = Path(value).expanduser()
+    if not p.is_absolute():
+        p = p.resolve()
+    if not p.is_file() or p.stat().st_size <= 0:
+        raise SystemExit(f"ERROR: explicit final XML is missing or empty: {p}")
+    return str(p)
+
+ap = argparse.ArgumentParser()
+ap.add_argument("--run-dir", required=True)
+ap.add_argument("--status", choices=("completed", "failed"), required=True)
+ap.add_argument("--command-log", default="")
+ap.add_argument("--failed-line", default="")
+ap.add_argument("--failed-command", default="")
+args = ap.parse_args()
+
+rd = Path(args.run_dir)
+manifest = rd / "manifests" / "phase2_manifest.json"
+result_manifest = rd / "manifests" / "result_manifest.json"
+smoke_verdict = rd / "missalignment" / "results" / "smoke_verdict.json"
+rmd = load_json(result_manifest)
+
+base = {
+    "status": args.status,
+    "slurm_job_id": os.environ.get("SLURM_JOB_ID", ""),
+    "hostname": socket.getfqdn() or socket.gethostname(),
+    "completed_stages": STAGES if args.status == "completed" else [],
+    "smoke_verdict": str(smoke_verdict),
+    "result_manifest": str(result_manifest),
+    "final_xml": None,
+}
+
+if args.status == "failed":
+    base["failed_line"] = args.failed_line
+    base["failed_command"] = args.failed_command
+    base["completed_at"] = datetime.now(timezone.utc).isoformat()
+    atomic_json(manifest, base)
+    raise SystemExit(0)
+
+candidates = []
+if os.environ.get("MISSALIGN_FINAL_XML"):
+    candidates.append(os.environ["MISSALIGN_FINAL_XML"])
+if rmd.get("final_xml"):
+    candidates.append(rmd["final_xml"])
+candidates.extend(explicit_log_xml(args.command_log))
+candidates = list(dict.fromkeys(str(c) for c in candidates if c))
+
+if len(candidates) != 1:
+    atomic_json(manifest, {**base, "status": "failed",
+                           "error": "could not identify exactly one explicit final XML",
+                           "final_xml_candidates": candidates,
+                           "completed_at": datetime.now(timezone.utc).isoformat()})
+    raise SystemExit("ERROR: Phase 2 completed but final XML was not identified unambiguously. "
+                     "Set MISSALIGN_FINAL_XML, pre-populate result_manifest.final_xml, or ensure "
+                     "the command log contains exactly one FINAL_XML=<path>. Refusing mtime discovery.")
+
+final_xml = validate_xml(candidates[0])
+final_iteration = os.environ.get("MISSALIGN_FINAL_ITERATION") or rmd.get("final_iteration")
+if final_iteration in ("", None):
+    final_iteration = explicit_log_iteration(args.command_log)
+completed_at = datetime.now(timezone.utc).isoformat()
+rmd.update({
+    "final_xml": final_xml,
+    "final_iteration": int(final_iteration) if final_iteration not in ("", None) else None,
+    "phase2_completed_at": completed_at,
+    "phase2_slurm_job_id": os.environ.get("SLURM_JOB_ID", ""),
+    "phase2_hostname": base["hostname"],
+})
+atomic_json(result_manifest, rmd)
+base.update({"final_xml": final_xml, "completed_at": completed_at})
+atomic_json(manifest, base)
+print(f"[phase2] recorded final XML: {final_xml}")
+'''
+
+
+def generate_jobs(layout: RunLayout, *, profile: str = "maxwell",
+                  ma_command: str, run_script: str, settings_path: str,
+                  working_recon: bool = False, halfmaps: bool = False,
+                  smoke_command: str = "", cluster=None,
+                  warp_staging_manifest: str = "",
+                  reconstruction_config: dict | None = None) -> dict:
+    """Write all jobs + helpers under ``layout.jobs_dir``; return their paths.
+
+    ``smoke_command`` runs the reduced smoke config (no ``--smoke`` flag). ``cluster``
+    is a ClusterConfig-like object whose fields drive the sbatch headers/env (2.14).
+    """
+    rd = layout.run_dir
+    jd = layout.jobs_dir
+    jd.mkdir(parents=True, exist_ok=True)
+    written = {}
+    (jd / "_env_report.py").write_text(_env_report_helper())
+    written["_env_report.py"] = str(jd / "_env_report.py")
+    (jd / "_phase2_complete.py").write_text(_phase2_complete_helper())
+    (jd / "_phase2_complete.py").chmod(0o755)
+    written["_phase2_complete.py"] = str(jd / "_phase2_complete.py")
+    # copy the self-contained capability probe into the run's jobs dir so the
+    # generated sbatch files can call it without depending on repo layout.
+    probe_src = Path(__file__).resolve().parents[2] / "tools" / "cluster_capability_probe.py"
+    if probe_src.is_file():
+        (jd / "cluster_capability_probe.py").write_text(probe_src.read_text())
+        (jd / "cluster_capability_probe.py").chmod(0o755)
+        written["cluster_capability_probe.py"] = str(jd / "cluster_capability_probe.py")
+    clone_src = Path(__file__).resolve().parents[1] / "clone_warp_projects.py"
+    if clone_src.is_file():
+        (jd / "clone_warp_projects.py").write_text(clone_src.read_text())
+        (jd / "clone_warp_projects.py").chmod(0o755)
+        written["clone_warp_projects.py"] = str(jd / "clone_warp_projects.py")
+
+    phase2_act = _phase2_activation(cluster)
+
+    def _w(name: str, body: str, *, executable=True):
+        p = jd / name
+        p.write_text(body)
+        if executable:
+            p.chmod(0o755)
+        written[name] = str(p)
+        return p
+
+    repo_root = Path(__file__).resolve().parents[2]
+    conv_script = repo_root / "scripts" / "run_warp_conversion.py"
+    staging = warp_staging_manifest or str(layout.manifest("warp_staging_manifest.json"))
+    smoke_cmd = smoke_command or ma_command
+    _w("_smoke_verdict.py", _smoke_verdict_helper())
+
+    phase2_time = getattr(cluster, "time", None) if cluster else None
+    phase2_cpus = getattr(cluster, "cpus", None) if cluster else None
+    _w("phase2.sbatch",
+       _sbatch_header("phase2", gpu=True, profile=profile, time=phase2_time or "7-00:00:00",
+                      cpus=int(phase2_cpus or 16), run_dir=rd, cluster=cluster)
+       + _preamble("phase2", rd) + phase2_act + _diagnostics("phase2", rd) + _monitor("phase2", rd)
+       + f'''
+stage() {{
+  echo "[phase2] START $1"
+}}
+stage_done() {{
+  echo "[phase2] DONE $1"
+}}
+
+stage "environment/CUDA/MissAlignment preflight"
+{PYTHON} {rd}/jobs/cluster_capability_probe.py --run-dir {shlex.quote(str(rd))} \
+--require-cuda --require-missalignment
+stage_done "environment/CUDA/MissAlignment preflight"
+
+stage "Warp conversion"
+STAGING={shlex.quote(staging)}
+if [ ! -f "$STAGING" ]; then
+  echo "no warp staging manifest ($STAGING); nothing to convert (was warpylib present at prepare time?)" >&2
+  exit 2
+fi
+{PYTHON} {shlex.quote(str(conv_script))} --staging-manifest "$STAGING" \
+--training-dir {shlex.quote(str(layout.training_dir))}
+test -f {shlex.quote(str(layout.training_dir))}/_converted.marker || \
+  {{ echo "warp conversion produced no marker" >&2; exit 1; }}
+stage_done "Warp conversion"
+
+stage "Warp-project validation"
+{PYTHON} {rd}/jobs/cluster_capability_probe.py --run-dir {shlex.quote(str(rd))} \
+--training-dir {shlex.quote(str(layout.training_dir))} --require-cuda --require-missalignment \
+--require-modes {layout.refinement_mode}
+stage_done "Warp-project validation"
+
+# v7 safety gate: the expensive MissAlignment run starts only after the
+# scientist has inspected and accepted the PRE conversion reconstruction.
+if [[ {shlex.quote(layout.condition)} == "raw_xf_affine_fixed" ]]; then
+  ACCEPTANCE="$RUN_DIR/diagnostics/warp_reconstruction/pre_conversion/acceptance.json"
+  if [[ "${{ALLOW_WITHOUT_PRE_CONVERSION_ACCEPTANCE:-0}}" != "1" && ! -s "$ACCEPTANCE" ]]; then
+    echo "ERROR: PRE conversion reconstruction has not been accepted: $ACCEPTANCE" >&2
+    echo "Run phase2a_convert_and_pre_reconstruct.sbatch, inspect the map, then run:" >&2
+    echo "  python {shlex.quote(str(Path(__file__).resolve().parent / 'accept_pre_conversion.py'))} --project-settings {shlex.quote(settings_path)}" >&2
+    exit 2
+  fi
+fi
+
+BASE_WARP={shlex.quote(str(layout.training_dir))}
+PRE_WARP={shlex.quote(str(rd / "warp" / "pre_missalign"))}
+SMOKE_WARP={shlex.quote(str(rd / "warp" / "missalign_smoke"))}
+FULL_WARP={shlex.quote(str(rd / "warp" / "missalign_full"))}
+stage "isolated Warp snapshot creation"
+{PYTHON} "$RUN_DIR/jobs/clone_warp_projects.py" \
+  --source "$BASE_WARP" --pre "$PRE_WARP" --smoke "$SMOKE_WARP" --full "$FULL_WARP" \
+  --manifest "$RUN_DIR/manifests/warp_snapshot_manifest.json"
+stage_done "isolated Warp snapshot creation"
+
+stage "MissAlignment smoke run"
+SMOKE_LOG="$RUN_DIR/logs/phase2/smoke_run_${{JOB_ID}}.log"
+{smoke_cmd} 2>&1 | tee "$SMOKE_LOG"
+stage_done "MissAlignment smoke run"
+
+stage "smoke-verdict validation"
+{PYTHON} {rd}/jobs/_smoke_verdict.py --run-dir {shlex.quote(str(rd))} \
+  --training-dir "$SMOKE_WARP" --log "$SMOKE_LOG" --mode {layout.refinement_mode}
+stage_done "smoke-verdict validation"
+
+# run_missalignment.sh compatibility note: the full command is emitted directly so it targets the isolated full snapshot.
+stage "MissAlignment full run"
+SMOKE_VERDICT={rd}/missalignment/results/smoke_verdict.json
+if [ "${{ALLOW_WITHOUT_SMOKE:-0}}" != "1" ] && [ ! -f "$SMOKE_VERDICT" ]; then
+  echo "refusing to run full: smoke verdict missing ($SMOKE_VERDICT). Set ALLOW_WITHOUT_SMOKE=1 to override." >&2
+  exit 2
+fi
+FULL_LOG="$RUN_DIR/logs/phase2/full_run_${{JOB_ID}}.log"
+{ma_command} 2>&1 | tee "$FULL_LOG"
+stage_done "MissAlignment full run"
+
+mapfile -t FINAL_XMLS < <(find "$FULL_WARP" -maxdepth 1 -type f -name '*.xml' -print | sort)
+if [ "${{#FINAL_XMLS[@]}}" -ne 1 ]; then
+  echo "ERROR: expected exactly one final XML in $FULL_WARP, found ${{#FINAL_XMLS[@]}}" >&2
+  printf '%s\n' "${{FINAL_XMLS[@]}}" >&2
+  exit 2
+fi
+export MISSALIGN_FINAL_XML="${{FINAL_XMLS[0]}}"
+{PYTHON} "$RUN_DIR/jobs/_phase2_complete.py" --run-dir "$RUN_DIR" --status completed --command-log "$FULL_LOG"
+''')
+
+    recon = reconstruction_config or {}
+
+    # WarpTools diagnostic reconstruction is independent from the IMOD backend.
+    # Generate it during Phase 1 so completed/imported Phase-2 snapshots can be
+    # reconstructed without hand-written cluster scripts.
+    wt_cfg = dict(recon.get("warptools", {}) or {})
+    if wt_cfg.get("enabled", True):
+        wt_cluster, wt_phase3 = _phase3_warptools_cluster(cluster, recon)
+        wt_time = str(wt_phase3.get("time") or getattr(wt_cluster, "time", "24:00:00"))
+        wt_cpus = int(wt_phase3.get("cpus_per_task") or getattr(wt_cluster, "cpus", 16) or 16)
+        wt_script = Path(__file__).resolve().parent / "warptools_reconstruction.py"
+        wt_executor_sha = _sha256_existing(wt_script)
+        wt_settings_sha = _sha256_existing(Path(settings_path))
+        wt_activation = _phase3_warptools_activation(cluster)
+        wt_job = "phase3_warptools_pre_vs_full_reconstruct"
+        pre_conversion_script = Path(__file__).resolve().parent / "pre_conversion_reconstruction.py"
+        output_angpix = wt_cfg.get("output_angpix_A", 0.0)
+        device_list = str(wt_cfg.get("device_list", "0"))
+        perdevice = int(wt_cfg.get("perdevice", 1))
+
+        # v7 geometry gate: conversion + one PRE reconstruction, with no
+        # MissAlignment dependency. Submit and inspect this job before phase2.sbatch.
+        pre_job = "phase2a_convert_and_pre_reconstruct"
+        _w(
+            pre_job + ".sbatch",
+            _sbatch_header(
+                pre_job,
+                gpu=True,
+                profile=profile,
+                time=wt_time,
+                cpus=wt_cpus,
+                run_dir=rd,
+                cluster=wt_cluster,
+            )
+            + _preamble(pre_job, rd)
+            + wt_activation
+            + _diagnostics(pre_job, rd)
+            + _monitor(pre_job, rd)
+            + f'''
+echo "[phase2a] START conversion-only geometry gate"
+STAGING={shlex.quote(staging)}
+TRAINING_DIR={shlex.quote(str(layout.training_dir))}
+if [[ ! -f "$STAGING" ]]; then
+  echo "ERROR: missing canonical staging manifest: $STAGING" >&2
+  exit 2
+fi
+FORCE_ARG=""
+if [[ "${{FORCE_WARP_CONVERSION:-0}}" == "1" ]]; then
+  FORCE_ARG="--force"
+fi
+# Always invoke the converter: it validates whether the existing marker uses
+# the current explicit IMOD-MRC -> Warp volume-frame contract. Legacy markers
+# are reconverted instead of being trusted.
+"$PHASE3_PYTHON" {shlex.quote(str(conv_script))} \
+  --staging-manifest "$STAGING" \
+  --training-dir "$TRAINING_DIR" $FORCE_ARG
+test -f "$TRAINING_DIR/_converted.marker" || \
+  {{ echo "ERROR: Warp conversion produced no marker" >&2; exit 2; }}
+OUTPUT_ANGPIX="${{OUTPUT_ANGPIX:-{output_angpix}}}"
+"$PHASE3_PYTHON" {shlex.quote(str(pre_conversion_script))} run \
+  --project-settings {shlex.quote(settings_path)} \
+  --output-angpix "$OUTPUT_ANGPIX" \
+  --device-list {shlex.quote(device_list)} \
+  --perdevice {perdevice}
+echo "[phase2a] DONE. Review diagnostics/warp_reconstruction/pre_conversion/latest_success before phase2.sbatch"
+''',
+        )
+        _w(
+            wt_job + ".sbatch",
+            _sbatch_header(
+                wt_job,
+                gpu=True,
+                profile=profile,
+                time=wt_time,
+                cpus=wt_cpus,
+                run_dir=rd,
+                cluster=wt_cluster,
+            )
+            + _preamble(wt_job, rd)
+            + wt_activation
+            + _diagnostics(wt_job, rd)
+            + _monitor(wt_job, rd)
+            + f'''
+echo "[phase3:warptools] START diagnostic pre/full reconstruction"
+OUTPUT_ANGPIX="${{OUTPUT_ANGPIX:-{output_angpix}}}"
+"$PHASE3_PYTHON" {shlex.quote(str(wt_script))} run \
+  --project-settings {shlex.quote(settings_path)} \
+  --output-angpix "$OUTPUT_ANGPIX" \
+  --device-list {shlex.quote(device_list)} \
+  --perdevice {perdevice} \
+  --expected-executor-sha {wt_executor_sha} \
+  --expected-settings-sha {wt_settings_sha}
+echo "[phase3:warptools] DONE diagnostic pre/full reconstruction"
+''',
+        )
+
+    if recon.get("enabled", True):
+        snapshots = recon.get("snapshots") or ["pre_missalign", "smoke", "full"]
+        phase3_cluster, phase3 = _phase3_cluster(cluster, recon)
+        phase3_time = phase3.get("time") or "08:00:00"
+        phase3_cpus = int(phase3.get("cpus_per_task") or getattr(phase3_cluster, "cpus", 16) or 16)
+        recon_script = Path(__file__).resolve().parent / "imod_reconstruction.py"
+        executor_sha = _sha256_existing(recon_script)
+        settings_sha = _sha256_existing(Path(settings_path))
+        phase3_act = _phase3_imod_activation(cluster, recon)
+        job_names = {
+            "pre_missalign": "phase3_pre_missalign_reconstruct.sbatch",
+            "smoke": "phase3_smoke_reconstruct.sbatch",
+            "full": "phase3_full_finalize_and_reconstruct.sbatch",
+        }
+        labels = {
+            "pre_missalign": "pre_missalign diagnostic reconstruction",
+            "smoke": "smoke diagnostic reconstruction",
+            "full": "full finalize and canonical reconstruction",
+        }
+        for snapshot in snapshots:
+            name = job_names.get(snapshot)
+            if not name:
+                continue
+            job = name.removesuffix(".sbatch")
+            _w(name,
+               _sbatch_header(job, gpu=False, profile=profile, time=phase3_time,
+                              cpus=phase3_cpus, run_dir=rd, cluster=phase3_cluster)
+               + _preamble(job, rd) + phase3_act + _diagnostics(job, rd)
+               + f'''
+echo "[phase3:{snapshot}] START {labels[snapshot]}"
+"$PHASE3_PYTHON" {shlex.quote(str(recon_script))} run \
+  --project-settings {shlex.quote(settings_path)} \
+  --snapshot {shlex.quote(snapshot)} \
+  --expected-executor-sha {executor_sha} \
+  --expected-settings-sha {settings_sha}
+echo "[phase3:{snapshot}] DONE {labels[snapshot]}"
+''')
+    return written

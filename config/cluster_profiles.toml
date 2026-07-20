@@ -1,0 +1,36 @@
+# Cluster profiles. Runtime user environments are supplied separately.
+[local]
+module_mode = "auto"
+imod_module = "imod"
+
+[maxwell]
+module_mode = "always"
+module_init_script = "/usr/share/Modules/init/bash"
+imod_module = "imod/5.1.11"
+imod_bin_dir = "/gpfs/cssb/software/rhel9/x86_64/imod/5.1.11/bin"
+warp_module = "warp/2.0.39"
+warp_tools_executable = "WarpTools"
+warp_worker_executable = "WarpWorker"
+missalign_environment = ""
+gpu_partition = "vds"
+gpu_constraint = "V100"
+gres = ""
+cpu_partition = "cssbcpu"
+
+[maxwell.reconstruction_cluster]
+partition = "cssbcpu"
+nodes = 1
+tasks = 1
+cpus_per_task = 16
+memory = "64G"
+time = "08:00:00"
+
+[maxwell.warptools_reconstruction_cluster]
+partition = "vds"
+constraint = "V100"
+gres = ""
+nodes = 1
+tasks = 1
+cpus_per_task = 16
+memory = "128G"
+time = "24:00:00"

@@ -1,0 +1,7 @@
+# Supported upstream MissAlignment version for the constrained integration.
+# Fill MISSALIGN_COMMIT with the exact commit your cluster environment provides;
+# install.sh checks out this commit before applying the patch.
+MISSALIGN_PACKAGE=miss-alignment
+MISSALIGN_COMMIT=UNPINNED_SET_ON_CLUSTER
+MISSALIGN_MIN_PYTHON=3.10
+# warpylib / torch_projectors are upstream runtime dependencies (not vendored here).
