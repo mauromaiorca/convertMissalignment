@@ -55,9 +55,9 @@ def test_reconstruct_requires_dataset_when_ambiguous(tmp_path: Path) -> None:
     assert reconstruct([str(project), "--dataset", "5.452Apx", "--print"]) == 0
 
 
-def test_distribution_source_version_is_0_1_12() -> None:
-    assert __version__ == "0.1.12"
-    assert (ROOT / "VERSION").read_text().strip() == "0.1.12"
+def test_distribution_source_version_is_0_1_14() -> None:
+    assert __version__ == "0.1.14"
+    assert (ROOT / "VERSION").read_text().strip() == "0.1.14"
 
 
 def test_translation_condition_is_backward_compatible() -> None:
@@ -80,7 +80,7 @@ def test_module_version_command() -> None:
         check=False,
     )
     assert completed.returncode == 0, completed.stderr
-    assert "0.1.12" in completed.stdout
+    assert "0.1.14" in completed.stdout
 
 
 def test_historical_setup_help_accepts_translation() -> None:
@@ -158,3 +158,18 @@ def test_inventory_lines_stay_narrow(tmp_path: Path, capsys) -> None:
         if line.startswith("Path ") or ".mrc" in line or ".png" in line:
             continue                            # full paths are deliberately on one line
         assert len(line) <= 80, line
+
+
+def test_inventory_states_before_and_after_tomograms(tmp_path: Path, capsys) -> None:
+    project = _project(tmp_path, "17.6Apx")
+    rec = project / "warp_data" / "17.6Apx" / "reconstructions" / "17.59Apx"
+    rec.mkdir(parents=True)
+    (rec / "TS_x.mrc").write_text("v")
+    (rec / "manifest.json").write_text('{"purpose": "geometry validation before MissAlignment"}')
+    assert inventory([str(project)]) == 0
+    out = capsys.readouterr().out
+    assert "TOMOGRAMS" in out
+    assert "already aligned" in out   # "before" is not "unaligned"
+    assert "engine: geometry validation before MissAlignment" in out
+    assert "NOT PRODUCED" in out                      # the after volume is absent
+    assert "compare_reconstructions.sbatch" in out    # and how to obtain it

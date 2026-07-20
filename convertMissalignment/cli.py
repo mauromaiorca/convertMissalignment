@@ -322,6 +322,35 @@ def _human_size(path: Path) -> str:
     return ""
 
 
+def _import_alignment(warp_dir: Path) -> str:
+    """The alignment the import itself applied (from the conversion manifest)."""
+    manifest = _first((warp_dir / "metadata").glob("*.conversion.json"))
+    if manifest is None:
+        return ""
+    try:
+        import json
+
+        data = json.loads(manifest.read_text())
+        return str(data.get("alignment_mode") or "")
+    except Exception:
+        return ""
+
+
+def _declared_purpose(volume: Path | None) -> str:
+    """The purpose the engine itself recorded next to a published reconstruction."""
+    if volume is None:
+        return ""
+    manifest = volume.parent / "manifest.json"
+    if not manifest.is_file():
+        return ""
+    try:
+        import json
+
+        return str(json.loads(manifest.read_text()).get("purpose") or "")
+    except Exception:
+        return ""
+
+
 def _origin(path: Path) -> str:
     """Which attempt and output stage produced a published artefact."""
     parts = path.resolve().parts
@@ -456,9 +485,14 @@ def inventory(argv: list[str]) -> int:
         show(xml)
 
         volume = _first((warp / "reconstructions").glob("*/*.mrc"))
-        _stage(2, "RECONSTRUCTION BEFORE MISSALIGNMENT", volume is not None)
-        _detail("Volume of the IMPORTED data, before any refinement.")
-        _detail("The series name carries the import condition, not the stage.")
+        _stage(2, "RECONSTRUCTION AT IMPORT (pre-MissAlignment)", volume is not None)
+        applied = _import_alignment(warp) or "the imported alignment"
+        _detail(f"ALREADY ALIGNED at import by the IMOD .xf ({applied}).")
+        _detail("\"Before\" means before MissAlignment REFINES that alignment,")
+        _detail("not an unaligned raw volume.")
+        purpose = _declared_purpose(volume)
+        if purpose:
+            _detail(f"engine: {purpose}")
         show(volume, origin=True)
         show(_first((warp / "reconstructions").glob("*/*.png")))
         if volume is not None:
@@ -509,6 +543,29 @@ def inventory(argv: list[str]) -> int:
             _detail(f"view:  3dmod missalignment/runs/{dataset}/export/imod/**/*.rec")
         if exported is None:
             _detail(f"run:   sbatch batches/export/{dataset}/export_imod_and_reconstruct.sbatch")
+
+    print("\nTOMOGRAMS  (which volume is which)")
+    for dataset in datasets:
+        warp = project / "warp_data" / dataset
+        runs = project / "missalignment" / "runs" / dataset
+        before = _first((warp / "reconstructions").glob("*/*.mrc"))
+        after = _first((runs / "results" / "reconstructions" / "warp_comparison").glob("*/final.mrc"))
+        applied = _import_alignment(warp) or "imported alignment"
+        _detail(f"BEFORE MissAlignment = imported data already aligned by the")
+        _detail(f"  IMOD .xf ({applied}); MissAlignment has not refined it yet")
+        if before is not None:
+            _detail(f"  {before.relative_to(project)}")
+        else:
+            _detail("  not produced yet -> convertMissalignment reconstruct")
+        _detail("AFTER MissAlignment  = the same data once MissAlignment has")
+        _detail("  refined that alignment")
+        if after is not None:
+            _detail(f"  {after.relative_to(project)}")
+        else:
+            _detail("  NOT PRODUCED. The full run refines the alignment but does not")
+            _detail("  reconstruct a volume. To get before+final with identical")
+            _detail("  parameters, run:")
+            _detail(f"  sbatch batches/missalignment/{dataset}/compare_reconstructions.sbatch")
 
     print("\nPROJECT RECORD")
     records = [

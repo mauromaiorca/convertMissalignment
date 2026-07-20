@@ -2,7 +2,7 @@
 
 ## Existing workflow compatibility
 
-Version 0.1.12 is designed to replace the previous editable installation without changing the historical executable name.
+Version 0.1.14 is designed to replace the previous editable installation without changing the historical executable name.
 
 The following command remains supported:
 
@@ -69,7 +69,7 @@ convertMissalignment --version
 convertMissalignment version
 ```
 
-Both commands report package version `0.1.12`.
+Both commands report package version `0.1.14`.
 
 The bundled pipeline revision is shown by:
 

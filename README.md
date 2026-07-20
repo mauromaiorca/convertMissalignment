@@ -2,7 +2,7 @@
 
 `convertMissAlignment` is a command-line pipeline for importing IMOD/eTomo tilt-series projects into Warp, preparing MissAlignment inputs, generating Slurm jobs, validating reconstructions, and exporting results back to IMOD.
 
-The Python distribution version is **0.1.12**. The bundled processing pipeline is based on **MissAlignment pipeline 8.0.0-alpha6-optional-smoke-run**.
+The Python distribution version is **0.1.14**. The bundled processing pipeline is based on **MissAlignment pipeline 8.0.0-alpha6-optional-smoke-run**.
 
 ## Compatibility
 
@@ -12,7 +12,7 @@ The historical command and Python entry point are retained:
 command:       convertMissalignment
 entry point:   convertMissalignment.cli:main
 distribution:  convertMissAlignment
-version:       0.1.12
+version:       0.1.14
 ```
 
 Existing commands such as the following remain valid:
@@ -69,7 +69,7 @@ convertMissalignment doctor
 Expected package version:
 
 ```text
-0.1.12
+0.1.14
 ```
 
 `convertMissalignment where` reports the executable, Python interpreter, environment, installed package directory, and source root. This is the recommended way to identify an editable checkout.

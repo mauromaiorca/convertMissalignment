@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.1.14
+
+- Corrects misleading wording in `inventory`. For conditions such as `raw_xf_affine_fixed`
+  the affine from the IMOD `.xf` is applied by the import itself, so the pre-MissAlignment
+  volume is already aligned. The stage is now called "RECONSTRUCTION AT IMPORT
+  (pre-MissAlignment)" and states the alignment the import applied, read from the
+  conversion manifest, making clear that "before" means before MissAlignment refines that
+  alignment rather than an unaligned raw volume.
+
+## 0.1.13
+
+- `inventory` ends with a TOMOGRAMS section that states plainly which volume is the one
+  before MissAlignment and which is the one after, and says that a completed full run
+  refines the alignment without reconstructing a volume.
+- The before volume now quotes the purpose the engine recorded beside it
+  (`engine: Warp dataset geometry validation before MissAlignment`), so the stage a file
+  belongs to no longer has to be guessed from the series name.
+
 ## 0.1.12
 
 - `inventory` prints each artefact path on a single line, and reports the attempt that
