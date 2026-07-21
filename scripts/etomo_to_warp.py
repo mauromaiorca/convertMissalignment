@@ -34,6 +34,7 @@ from geometry.volume_frames import volume_frame_manifest
 from imod_affine import (
     build_movement_grid_values,
     diagnose_matrix,
+    imod_xf_row_to_warp_alignment,
     inverse_physical_map,
     read_xf,
     transform_axis_angle_raw_to_aligned,
@@ -367,17 +368,30 @@ def process_tilt_series(
         ts.grid_movement_y = create_zero_grid(n_tilts)
         manifest["offsets_xy_A"] = [[0.0, 0.0] for _ in range(n_tilts)]
     elif alignment_mode == "translation":
+        # Warp TiltAxisOffsetX/Y from the .xf, numerically equal to the official
+        # ts_import_alignments (offset = -A @ d * alignment_angpix). alignment_angpix is the
+        # pixel size of the .xf grid = the staged stack voxel (raw pixel for axis_frame=raw),
+        # NOT the target reconstruction pixel. Angles/offsets do not depend on the tilt-angle
+        # sign; IMOD SHIFT is applied only through the global 3-D mechanism, not added here.
         offsets = np.zeros((n_tilts, 2), dtype=float)
+        warp_xf_angles = np.zeros(n_tilts, dtype=float)
         for index, (matrix, shift) in enumerate(zip(matrices, shifts, strict=True)):
-            _, inverse_shift = inverse_physical_map(
-                matrix, shift, input_pixel_size, input_pixel_size
-            )
-            offsets[index] = inverse_shift
+            row = [matrix[0, 0], matrix[0, 1], matrix[1, 0], matrix[1, 1], shift[0], shift[1]]
+            ang, ox, oy = imod_xf_row_to_warp_alignment(row, input_pixel_size)
+            offsets[index] = (ox, oy)
+            warp_xf_angles[index] = ang
         ts.tilt_axis_offset_x = torch.tensor(offsets[:, 0], dtype=torch.float32)
         ts.tilt_axis_offset_y = torch.tensor(offsets[:, 1], dtype=torch.float32)
         ts.grid_movement_x = create_zero_grid(n_tilts)
         ts.grid_movement_y = create_zero_grid(n_tilts)
         manifest["offsets_xy_A"] = offsets.tolist()
+        manifest["warp_xf_import"] = {
+            "convention": "official_ts_import_alignments_equivalent",
+            "offset_formula": "-A @ d * alignment_angpix",
+            "alignment_angpix": float(input_pixel_size),
+            "alignment_angpix_source": "staged stack voxel (.xf grid pixel)",
+            "xf_derived_tilt_axis_angle_deg": warp_xf_angles.tolist(),
+        }
     elif alignment_mode in ("full-affine", "quarter-turn-affine"):
         values_x, values_y, offsets = build_movement_grid_values(
             matrices,

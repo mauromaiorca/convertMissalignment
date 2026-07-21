@@ -2,6 +2,20 @@
 
 ## 0.1.15
 
+- Corrects the custom IMOD `.xf` -> Warp `TiltAxisOffsetX/Y` conversion to match the
+  installed `ts_import_alignments`. The offset was `-inv(A) @ d * angpix`; the official
+  operation (Matrix3 / `Rotation.Transposed() * Shift`, row-major) is `-A @ d * angpix`
+  (A = the `.xf` 2x2 as read; d = DX,DY) — derived from the literal Warp operation, not
+  assumed, and proven equal to the literal Matrix3 port for every row. New single canonical
+  helper `imod_affine.imod_xf_row_to_warp_alignment(xf_row, alignment_angpix)` (returns
+  `TiltAxisAngle_deg` via an EulerFromMatrix port + `TiltAxisOffsetX/Y` in Angstrom); used in
+  the translation conversion path. `alignment_angpix` is resolved from the `.xf` grid (the
+  staged stack voxel; raw pixel for `axis_frame=raw`), never the reconstruction pixel. IMOD
+  SHIFT stays a single global 3-D translation (not added to per-view offsets). Tilt-angle
+  sign, view order, volume-frame, OFFSET, XAXISTILT/LevelAngleX, SHIFT and the revised-IMOD
+  export are unchanged. `scripts/pipeline/warp_xf_import_reference.py` confirms parity against
+  the real importer on the cluster.
+
 - Corrects the IMOD->Warp tilt-angle convention. One canonical
   `IMOD_TO_WARP_TILT_ANGLE_SIGN = -1` (allowed -1/+1) is applied EXACTLY ONCE to both the
   per-view angles (`warp = sign * imod_raw`) and OFFSET (`LevelAngleY = sign * OFFSET`), so
