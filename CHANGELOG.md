@@ -2,6 +2,21 @@
 
 ## 0.1.15
 
+- Corrects the IMOD->Warp tilt-angle convention. One canonical
+  `IMOD_TO_WARP_TILT_ANGLE_SIGN = -1` (allowed -1/+1) is applied EXACTLY ONCE to both the
+  per-view angles (`warp = sign * imod_raw`) and OFFSET (`LevelAngleY = sign * OFFSET`), so
+  the effective angles are the sign-transformed IMOD effective angles. Direct-stack view
+  order stays identity (Warp row i == source section i; no reversal, no per-view resorting).
+  The sign flows through the resolved config, warp staging manifest, local + cluster
+  conversion, the conversion/validation manifests (with `tilt_view_order` + `tilt_angle_convention`),
+  the conversion/reconstruction/export cache identities (a sign +1 artefact is stale vs -1),
+  and the revised-IMOD export, which applies the exact inverse (`imod = sign * warp`, its own
+  inverse) read from the conversion manifest. `.xf` matrices are unaffected;
+  `BASE_AXIS_PERMUTATION`, SHIFT, XAXISTILT/LevelAngleX and `AreAnglesInverted` are unchanged.
+  Adds `scripts/pipeline/diagnose_tilt_angle_sign.py` (IMOD `clip rotx` vs Warp sign +1/-1
+  reconstruction comparison; cluster-run generation, local NCC comparison).
+
+
 - Preserves the full IMOD tilt.com tomogram-positioning geometry (THICKNESS, OFFSET,
   XAXISTILT, SHIFT) end to end. New canonical `geometry.imod_positioning` module (parser
   with tilt.com authority, `ImodPositioning`, documented IMOD->Warp conversion functions,

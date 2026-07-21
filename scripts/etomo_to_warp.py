@@ -60,10 +60,12 @@ def create_zero_grid(n_tilts: int) -> CubicGrid:
     return CubicGrid((1, 1, max(1, n_tilts)))
 
 
-def apply_imod_positioning(ts, positioning, *, level_angle_x_sign: int = -1) -> dict:
+def apply_imod_positioning(ts, positioning, *, level_angle_x_sign: int = -1,
+                           imod_to_warp_tilt_angle_sign: int = -1) -> dict:
     """Apply IMOD tilt.com positioning to a Warp ``TiltSeries`` (mandatory-policy mapping).
 
-    OFFSET    -> ``ts.level_angle_y`` (raw angles stay in ``ts.angles``; applied EXACTLY ONCE)
+    OFFSET    -> ``ts.level_angle_y = imod_to_warp_tilt_angle_sign * OFFSET`` (the SAME sign as
+                 the angles, applied EXACTLY ONCE; ts.angles already holds the signed angles).
     XAXISTILT -> ``ts.level_angle_x = level_angle_x_sign * XAXISTILT`` (sign confirmed only by
                  the cluster validation script; NOT inferred from field names)
     SHIFT     -> object-space translation via ``ts.apply_tomogram_shift_3d([x, y, z] Angstrom)``,
@@ -74,12 +76,17 @@ def apply_imod_positioning(ts, positioning, *, level_angle_x_sign: int = -1) -> 
     """
     import torch
 
+    from geometry.imod_positioning import validate_tilt_angle_sign
+    tilt_angle_sign = validate_tilt_angle_sign(imod_to_warp_tilt_angle_sign)
     offset = float(positioning.tilt_angle_offset_deg)
     xaxis = float(positioning.x_axis_tilt_deg)
-    ts.level_angle_y = offset                          # OFFSET; ts.angles unchanged (raw)
+    warp_level_angle_y = tilt_angle_sign * offset
+    ts.level_angle_y = warp_level_angle_y              # OFFSET * sign; ts.angles already signed
     ts.level_angle_x = float(level_angle_x_sign) * xaxis
     applied = {
-        "warp_level_angle_y_deg": offset,
+        "imod_offset_deg": offset,
+        "imod_to_warp_tilt_angle_sign": tilt_angle_sign,
+        "warp_level_angle_y_deg": warp_level_angle_y,
         "warp_level_angle_x_deg": float(level_angle_x_sign) * xaxis,
         "level_angle_x_sign": int(level_angle_x_sign),
         "level_angle_x_sign_validated": False,          # confirmed by validate_warp_positioning.py
@@ -114,6 +121,7 @@ def process_tilt_series(
     grid_shape_xy: tuple[int, int],
     positioning=None,
     level_angle_x_sign: int = -1,
+    imod_to_warp_tilt_angle_sign: int = -1,
 ) -> tuple[TiltSeries, Path]:
     if alignment_mode not in ALIGNMENT_MODES:
         raise ValueError(f"unknown alignment mode {alignment_mode!r}")
@@ -237,8 +245,15 @@ def process_tilt_series(
     stack_path = stack_dir / f"{folder_name}.st"
     xml_path = output_directory / f"{folder_name}.xml"
 
+    # IMOD -> Warp tilt-angle sign, applied EXACTLY ONCE to the raw angles (view order is
+    # preserved: warp row i == source stack section i). OFFSET receives the same sign below
+    # (LevelAngleY); the raw .tlt is never negated on disk and OFFSET is not baked in here.
+    from geometry.imod_positioning import validate_tilt_angle_sign
+    tilt_angle_sign = validate_tilt_angle_sign(imod_to_warp_tilt_angle_sign)
+    warp_angles = [tilt_angle_sign * float(a) for a in tilt_angles]
+
     ts = TiltSeries(path=str(xml_path), n_tilts=n_tilts)
-    ts.angles = torch.tensor(tilt_angles, dtype=torch.float32)
+    ts.angles = torch.tensor(warp_angles, dtype=torch.float32)
 
     if axis_frame == "aligned":
         axis_angles = [
@@ -256,7 +271,8 @@ def process_tilt_series(
     warp_positioning_applied = None
     if positioning is not None:
         warp_positioning_applied = apply_imod_positioning(
-            ts, positioning, level_angle_x_sign=level_angle_x_sign)
+            ts, positioning, level_angle_x_sign=level_angle_x_sign,
+            imod_to_warp_tilt_angle_sign=tilt_angle_sign)
 
     height, width = map(int, images.shape[-2:])
     ts.image_dimensions_physical = torch.tensor(
@@ -332,6 +348,13 @@ def process_tilt_series(
         write_xf(residual_xf_path, matrices, shifts)
         manifest["quarter_turn"] = quarter_turn_manifest
         manifest["residual_xf_file"] = str(residual_xf_path.resolve())
+
+    # Direct-stack view order is identity (warp row i == source section i); the tilt-angle
+    # sign is recorded so the Warp->IMOD export can apply the exact inverse.
+    from geometry.imod_positioning import (
+        tilt_angle_convention_manifest, tilt_view_order_identity)
+    manifest["tilt_view_order"] = tilt_view_order_identity(n_tilts)
+    manifest["tilt_angle_convention"] = tilt_angle_convention_manifest(tilt_angle_sign)
 
     if positioning is not None:
         manifest["imod_positioning"] = positioning.to_manifest()
@@ -446,14 +469,22 @@ def main() -> int:
         ),
     )
     parser.add_argument("--level-angle-x-sign", type=int, choices=(1, -1), default=-1)
+    parser.add_argument("--imod-tilt-angle-sign", type=int, choices=(1, -1), default=None,
+                        help="IMOD->Warp tilt-angle sign; defaults to the positioning table "
+                             "value or -1.")
     args = parser.parse_args()
 
+    from geometry.imod_positioning import IMOD_TO_WARP_TILT_ANGLE_SIGN, validate_tilt_angle_sign
     positioning = None
+    tilt_angle_sign = IMOD_TO_WARP_TILT_ANGLE_SIGN
     if args.imod_positioning_json is not None:
         if not args.imod_positioning_json.is_file():
             raise SystemExit(f"ERROR: --imod-positioning-json not found: {args.imod_positioning_json}")
         from geometry.imod_positioning import from_toml_table
         positioning = from_toml_table(json.loads(args.imod_positioning_json.read_text()))
+        tilt_angle_sign = positioning.imod_to_warp_tilt_angle_sign
+    if args.imod_tilt_angle_sign is not None:
+        tilt_angle_sign = validate_tilt_angle_sign(args.imod_tilt_angle_sign)
 
     input_directory = args.input_dir.resolve()
     output_directory = args.output_dir.resolve()
@@ -474,6 +505,7 @@ def main() -> int:
             tuple(int(x) for x in args.movement_grid_shape),
             positioning=positioning,
             level_angle_x_sign=int(args.level_angle_x_sign),
+            imod_to_warp_tilt_angle_sign=tilt_angle_sign,
         )
     print("\nConversion complete.")
     return 0

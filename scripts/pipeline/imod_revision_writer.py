@@ -450,7 +450,9 @@ def change_report_summary(report: dict) -> str:
 # --------------------------------------------------------------------------- #
 def export_cache_key(*, source_geometry_hash: str, refined_geometry_hash: str,
                      positioning_hash: str, volume_frame_contract_version: int,
-                     policy: RevisionPolicy, imod_version: str = "") -> str:
+                     policy: RevisionPolicy, imod_version: str = "",
+                     tilt_angle_sign: Optional[int] = None,
+                     view_mapping: Optional[str] = None) -> str:
     payload = {
         "writer_schema": WRITER_SCHEMA_VERSION,
         "revision_contract": REVISION_CONTRACT_VERSION,
@@ -460,6 +462,9 @@ def export_cache_key(*, source_geometry_hash: str, refined_geometry_hash: str,
         "volume_frame_contract_version": int(volume_frame_contract_version),
         "policy": policy.policy_hash_fields(),
         "imod_version": imod_version,
+        # A sign +1 export is stale for a sign -1 request; the view mapping guards order.
+        "tilt_angle_sign": None if tilt_angle_sign is None else int(tilt_angle_sign),
+        "view_mapping": view_mapping or "identity",
     }
     blob = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
@@ -598,6 +603,8 @@ def write_revision_export(
             "volume_frame_contract_version": (revision.provenance or {}).get(
                 "volume_frame_contract_version"),
         },
+        "tilt_view_order": (revision.provenance or {}).get("tilt_view_order"),
+        "tilt_angle_convention": (revision.provenance or {}).get("tilt_angle_convention"),
         "final_xf": file_hashes.get("final_xf"),
         "residual_xf": file_hashes.get("residual_xf"),
         "tlt": {**(file_hashes.get("tlt") or {}), "unchanged": bool(tlt_unchanged)},

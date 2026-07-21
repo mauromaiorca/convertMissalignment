@@ -177,7 +177,8 @@ def _positioning_overrides(cfg: dict | None) -> dict:
         return {}
     ov: dict = {}
     for key in ("tilt_angle_offset_deg", "x_axis_tilt_deg",
-                "thickness_unbinned_px", "unbinned_pixel_size_A"):
+                "thickness_unbinned_px", "unbinned_pixel_size_A",
+                "imod_to_warp_tilt_angle_sign"):
         if cfg.get(key) is not None:
             ov[key] = cfg[key]
     sx, sz = cfg.get("shift_x_unbinned_px"), cfg.get("shift_z_unbinned_px")

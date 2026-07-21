@@ -80,6 +80,31 @@ class RevisionSources:
     xtilt: Optional[Path] = None
     stats_json: Optional[Path] = None       # optional per-tilt representability stats
     final_xf: Optional[Path] = None         # finalize's own final .xf (consistency check)
+    conversion_manifest: Optional[Path] = None   # conversion_validation.json (sign + view order)
+
+
+def _tlt_row_count(path: Path) -> int:
+    return sum(1 for ln in Path(path).read_text().splitlines() if ln.strip())
+
+
+def _read_conversion_contract(sources: "RevisionSources") -> dict:
+    """The recorded conversion contract (tilt-angle sign + view order), read — not assumed.
+
+    Prefers the conversion manifest written at conversion time; returns {} when absent so
+    the caller falls back to the resolved config's positioning table.
+    """
+    p = getattr(sources, "conversion_manifest", None)
+    if p and Path(p).is_file():
+        try:
+            data = json.loads(Path(p).read_text())
+        except Exception:
+            return {}
+        return {
+            "imod_to_warp_tilt_angle_sign": data.get("imod_to_warp_tilt_angle_sign"),
+            "tilt_view_order": data.get("tilt_view_order"),
+            "tilt_angle_convention": data.get("tilt_angle_convention"),
+        }
+    return {}
 
 
 def _load_representability_stats(path: Optional[Path], n: int) -> Optional[list[dict]]:
@@ -164,12 +189,27 @@ def export_revised_imod(sources: RevisionSources, *, config: dict, layout: RunLa
         raise RevisionError("[export.imod_revision].enabled is false")
 
     positioning = (config.get("geometry", {}) or {}).get("imod_positioning") or {}
+    # Read the IMOD->Warp tilt-angle sign and the view mapping from the conversion manifest
+    # (fall back to the resolved config), NOT independently assumed. The sign is +-1 (its own
+    # inverse); the Warp->IMOD angle inverse uses it exactly once.
+    from geometry.imod_positioning import (
+        IMOD_TO_WARP_TILT_ANGLE_SIGN, tilt_angle_convention_manifest,
+        tilt_view_order_identity, validate_tilt_angle_sign)
+    conv = _read_conversion_contract(sources)
+    tilt_angle_sign = validate_tilt_angle_sign(
+        conv.get("imod_to_warp_tilt_angle_sign")
+        if conv.get("imod_to_warp_tilt_angle_sign") is not None
+        else positioning.get("imod_to_warp_tilt_angle_sign", IMOD_TO_WARP_TILT_ANGLE_SIGN))
+    n_views = _tlt_row_count(sources.original_tlt)
+    view_order = conv.get("tilt_view_order") or tilt_view_order_identity(n_views)
+
     cache_key = export_cache_key(
         source_geometry_hash=(source_hashes or {}).get("final_xf", {}).get("sha256", ""),
         refined_geometry_hash=(source_hashes or {}).get("residual_xf", {}).get("sha256", ""),
         positioning_hash=positioning.get("positioning_hash", "") if isinstance(positioning, dict) else "",
         volume_frame_contract_version=2, policy=policy,
-        imod_version=(software_versions or {}).get("imod", ""))
+        imod_version=(software_versions or {}).get("imod", ""),
+        tilt_angle_sign=tilt_angle_sign, view_mapping=view_order.get("mapping", "identity"))
 
     revision = build_revision_from_sources(
         sources, config=config, policy=policy, backend=backend,
@@ -182,6 +222,9 @@ def export_revised_imod(sources: RevisionSources, *, config: dict, layout: RunLa
             "original_geometry_hash": (source_hashes or {}).get("final_xf", {}).get("sha256"),
             "refined_geometry_hash": (source_hashes or {}).get("residual_xf", {}).get("sha256"),
             "backend": backend,
+            "imod_to_warp_tilt_angle_sign": tilt_angle_sign,
+            "tilt_view_order": view_order,
+            "tilt_angle_convention": tilt_angle_convention_manifest(tilt_angle_sign),
         })
 
     paths = ExportPaths.resolve(layout.exported_imod_dir, layout.export_imod_link)
@@ -217,7 +260,8 @@ def _resolve_sources_from_layout(config: dict, layout: RunLayout, args) -> Revis
         newst_com=Path(inp["newst_com"]) if inp.get("newst_com") else None,
         xtilt=Path(inp["xtilt_file"]) if inp.get("xtilt_file") else None,
         stats_json=Path(args.stats_json) if args.stats_json else None,
-        final_xf=final if final.is_file() else None)
+        final_xf=final if final.is_file() else None,
+        conversion_manifest=(layout.training_dir / "conversion_validation.json"))
 
 
 def main(argv=None) -> int:

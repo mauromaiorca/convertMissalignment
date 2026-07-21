@@ -240,10 +240,12 @@ def reconstruction_contract_hash(
     normalize: bool,
     warptools_version: Optional[str],
     numeric_locale: str = "C",
+    tilt_angle_sign: Optional[int] = None,
 ) -> str:
     """Stable hash forcing reconstruction reuse only when every geometry-affecting
-    input matches: tiling, requested angpix, normalisation policy, WarpTools version
-    and numeric locale."""
+    input matches: tiling, requested angpix, normalisation policy, WarpTools version,
+    numeric locale and the IMOD->Warp tilt-angle sign (so a sign +1 reconstruction is
+    never reused for a sign -1 request)."""
     payload = {
         "v": RECONSTRUCTION_CONTRACT_VERSION,
         "subvolume_size": tiling.subvolume_size,
@@ -252,6 +254,7 @@ def reconstruction_contract_hash(
         "normalize": bool(normalize),
         "warptools_version": warptools_version,
         "numeric_locale": numeric_locale,
+        "tilt_angle_sign": None if tilt_angle_sign is None else int(tilt_angle_sign),
     }
     blob = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()

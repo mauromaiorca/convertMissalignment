@@ -60,6 +60,68 @@ IMOD_TO_WARP_SIGN_NOTES = (
     "offset (it projects as sx*cos(theta)+sz*sin(theta))."
 )
 
+# --------------------------------------------------------------------------- #
+# IMOD -> Warp tilt-angle sign (the ONE canonical value; do not duplicate)
+# --------------------------------------------------------------------------- #
+# Warp's standard ``ts_import`` normally writes each tilt angle with sign -1 (``--dont_invert``
+# retains the source sign and flips geometric handedness). Our converter writes Warp XML
+# directly, bypassing that sign conversion, so we apply it explicitly and exactly once to BOTH
+# the per-view angles and the OFFSET (LevelAngleY). ``-1`` is the production, IMOD-compatible
+# default. Because the value is +-1 it is its own inverse.
+IMOD_TO_WARP_TILT_ANGLE_SIGN = -1
+
+
+def validate_tilt_angle_sign(sign) -> int:
+    """Return ``sign`` as an int, requiring exactly -1 or +1."""
+    s = int(sign)
+    if s not in (-1, 1):
+        raise ValueError(f"imod_to_warp_tilt_angle_sign must be -1 or +1, got {sign!r}")
+    return s
+
+
+def imod_angles_to_warp(imod_angles, sign=IMOD_TO_WARP_TILT_ANGLE_SIGN):
+    """warp_angles = sign * imod_raw_angles (element-wise, applied exactly once)."""
+    s = validate_tilt_angle_sign(sign)
+    return [s * float(a) for a in imod_angles]
+
+
+def warp_angles_to_imod(warp_angles, sign=IMOD_TO_WARP_TILT_ANGLE_SIGN):
+    """imod_raw_angle = sign * warp_angle (the exact inverse; +-1 is its own inverse)."""
+    s = validate_tilt_angle_sign(sign)
+    return [s * float(a) for a in warp_angles]
+
+
+def imod_offset_to_warp_level_angle_y(offset_deg, sign=IMOD_TO_WARP_TILT_ANGLE_SIGN):
+    """LevelAngleY = sign * OFFSET (same sign as the angles, applied exactly once)."""
+    return validate_tilt_angle_sign(sign) * float(offset_deg)
+
+
+def warp_level_angle_y_to_imod_offset(level_angle_y, sign=IMOD_TO_WARP_TILT_ANGLE_SIGN):
+    """OFFSET = sign * LevelAngleY (the exact inverse)."""
+    return validate_tilt_angle_sign(sign) * float(level_angle_y)
+
+
+def tilt_view_order_identity(n_views: int) -> dict:
+    """The direct-stack view-order contract: Warp rows == source stack sections (identity)."""
+    order = list(range(int(n_views)))
+    return {
+        "policy": "source_stack_order",
+        "mapping": "identity",
+        "warp_to_source": order,
+        "source_to_warp": order,
+    }
+
+
+def tilt_angle_convention_manifest(sign, *, validation_status="pending_reconstruction_comparison") -> dict:
+    """The angle-sign contract recorded in conversion/validation/export manifests."""
+    s = validate_tilt_angle_sign(sign)
+    return {
+        "imod_to_warp_sign": s,
+        "operation": "elementwise_negation" if s == -1 else "identity",
+        "offset_uses_same_sign": True,
+        "validation_status": validation_status,
+    }
+
 
 # --------------------------------------------------------------------------- #
 # parsing (tilt.com is authoritative)
@@ -129,6 +191,8 @@ class ImodPositioning:
     source_kind: str = "none"                # 'tilt.com' | 'tilt.log' | 'override' | 'none'
     present_fields: tuple = ()               # subset of POSITIONING_FIELDS actually found
     overridden: tuple = ()                   # fields whose value came from an explicit override
+    # The ONE canonical IMOD->Warp tilt-angle sign, applied to BOTH angles and OFFSET.
+    imod_to_warp_tilt_angle_sign: int = IMOD_TO_WARP_TILT_ANGLE_SIGN
 
     # -- physical shifts (require the UNBINNED IMOD pixel size) --------------
     @property
@@ -169,6 +233,7 @@ class ImodPositioning:
             "shift_unbinned_px": [self.shift_x_unbinned_px, self.shift_z_unbinned_px],
             "unbinned_pixel_size_A": self.unbinned_pixel_size_A,
             "shift_A": [self.shift_x_A, self.shift_z_A],
+            "imod_to_warp_tilt_angle_sign": self.imod_to_warp_tilt_angle_sign,
             "units": {
                 "angles": "degrees",
                 "shift_unbinned_px": "unbinned IMOD pixels",
@@ -187,6 +252,7 @@ class ImodPositioning:
             "x_axis_tilt_deg": self.x_axis_tilt_deg,
             "shift_x_unbinned_px": self.shift_x_unbinned_px,
             "shift_z_unbinned_px": self.shift_z_unbinned_px,
+            "imod_to_warp_tilt_angle_sign": self.imod_to_warp_tilt_angle_sign,
             "source_kind": self.source_kind,
             "present_fields": list(self.present_fields),
         }
@@ -214,6 +280,7 @@ class ImodPositioning:
             "shift_z_px": _round(self.shift_z_unbinned_px),
             "pixel_A": _round(self.unbinned_pixel_size_A) if self.unbinned_pixel_size_A is not None else None,
             "thickness": self.thickness_unbinned_px,
+            "tilt_angle_sign": self.imod_to_warp_tilt_angle_sign,
         }
         blob = json.dumps(payload, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(blob.encode("utf-8")).hexdigest()
@@ -246,6 +313,8 @@ def from_toml_table(table: Optional[dict]) -> ImodPositioning:
         source_kind=str(table.get("source_kind", "config")),
         present_fields=tuple(table.get("present_fields", ()) or ()),
         overridden=tuple(table.get("overridden", ()) or ()),
+        imod_to_warp_tilt_angle_sign=validate_tilt_angle_sign(
+            table.get("imod_to_warp_tilt_angle_sign", IMOD_TO_WARP_TILT_ANGLE_SIGN)),
     )
 
 
@@ -321,6 +390,8 @@ def parse_imod_positioning(
         present.append("THICKNESS")
 
     pixel = overrides.get("unbinned_pixel_size_A", unbinned_pixel_size_A)
+    tilt_angle_sign = validate_tilt_angle_sign(
+        overrides.get("imod_to_warp_tilt_angle_sign", IMOD_TO_WARP_TILT_ANGLE_SIGN))
 
     result = ImodPositioning(
         tilt_angle_offset_deg=offset,
@@ -333,6 +404,7 @@ def parse_imod_positioning(
         source_kind=source_kind,
         present_fields=tuple(dict.fromkeys(present)),   # dedupe, keep order
         overridden=tuple(dict.fromkeys(overridden)),
+        imod_to_warp_tilt_angle_sign=tilt_angle_sign,
     )
     result.require_pixel_size_for_shift()
     return result

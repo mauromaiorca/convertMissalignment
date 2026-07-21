@@ -82,6 +82,9 @@ def main() -> int:
     # positioning hash differs, is stale and must be reconverted.
     manifest_positioning_table = man.get("imod_positioning")
     manifest_positioning_hash = man.get("positioning_hash") or "none"
+    # The IMOD->Warp tilt-angle sign is part of the conversion identity: a marker written with
+    # a different sign (or before the sign contract existed) is stale even without positioning.
+    manifest_tilt_angle_sign = int(man.get("imod_to_warp_tilt_angle_sign", -1))
     requested_training_dir = Path(args.training_dir or man["training_dir"]).absolute()
     training_dir = requested_training_dir.resolve()
     training_dir.mkdir(parents=True, exist_ok=True)
@@ -108,13 +111,23 @@ def main() -> int:
         or (validation_version == 1 and validation_quarter_turn_k % 2 == 0)
     )
     positioning_is_current = positioning_marker_current(validation, manifest_positioning_hash)
+    # A pre-contract marker records no sign; default it to the historical +1 so it is treated
+    # as stale versus the -1 default and reconverted.
+    sign_is_current = int(validation.get("imod_to_warp_tilt_angle_sign", 1)) == manifest_tilt_angle_sign
     conversion_is_current = (
         (training_dir / "_converted.marker").is_file()
         and bool(list(training_dir.glob("*.xml")))
         and frame_contract_is_usable
         and bool(validation.get("warp_volume_shape_xyz"))
         and positioning_is_current
+        and sign_is_current
     )
+    if (training_dir / "_converted.marker").is_file() and not sign_is_current:
+        print(
+            "[warp-conversion] tilt-angle sign changed "
+            f"(marker={validation.get('imod_to_warp_tilt_angle_sign', 'none')} != "
+            f"manifest={manifest_tilt_angle_sign}); reconverting"
+        )
     if (training_dir / "_converted.marker").is_file() and not positioning_is_current:
         print(
             "[warp-conversion] positioning contract changed "
@@ -196,14 +209,20 @@ def main() -> int:
     if manifest_positioning_table:
         from geometry.imod_positioning import from_toml_table
         positioning = from_toml_table(manifest_positioning_table)
+    from geometry.imod_positioning import (
+        IMOD_TO_WARP_TILT_ANGLE_SIGN, tilt_angle_convention_manifest,
+        tilt_view_order_identity, validate_tilt_angle_sign)
     level_angle_x_sign = int(man.get("level_angle_x_sign", -1))
+    imod_tilt_angle_sign = validate_tilt_angle_sign(
+        man.get("imod_to_warp_tilt_angle_sign", IMOD_TO_WARP_TILT_ANGLE_SIGN))
     e2w.process_tilt_series(
         folder_path=ts_dir, output_directory=training_dir,
         tilt_axis_angle=float(man["tilt_axis_angle_deg"]),
         volume_shape=target_shape_imod_mrc_xyz,
         output_pixel_size=out_pix, alignment_mode=man["warp_alignment_mode"],
         axis_frame=man["axis_frame"], grid_shape_xy=tuple(args.grid_shape),
-        positioning=positioning, level_angle_x_sign=level_angle_x_sign)
+        positioning=positioning, level_angle_x_sign=level_angle_x_sign,
+        imod_to_warp_tilt_angle_sign=imod_tilt_angle_sign)
 
     xmls = list(training_dir.glob("*.xml"))
     if not xmls:
@@ -275,6 +294,9 @@ def main() -> int:
         "positioning_hash": manifest_positioning_hash,
         "positioning_applied": bool(positioning is not None),
         "level_angle_x_sign": level_angle_x_sign,
+        "imod_to_warp_tilt_angle_sign": imod_tilt_angle_sign,
+        "tilt_view_order": tilt_view_order_identity(n_t),
+        "tilt_angle_convention": tilt_angle_convention_manifest(imod_tilt_angle_sign),
         "volume_invariant_ok": True}, indent=2) + "\n")
     _publish_v8_dataset(requested_training_dir, man)
     print(f"[warp-conversion] OK: {len(xmls)} XML(s) in {training_dir} (validated)")
