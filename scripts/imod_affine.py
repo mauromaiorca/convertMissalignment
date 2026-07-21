@@ -392,82 +392,6 @@ def compose_xf(
     )
 
 
-# --------------------------------------------------------------------------- #
-# Parity with Warp's official ts_import_alignments (.xf -> TiltAxisAngle/OffsetX/Y)
-# --------------------------------------------------------------------------- #
-# The installed Warp importer performs, per .xf row [A11 A12 A21 A22 DX DY]:
-#     VecX = (A11, A21); VecY = (A12, A22)
-#     Rotation = Matrix3(VecX.X, VecX.Y, 0, VecY.X, VecY.Y, 0, 0, 0, 1)   # row-major fields
-#     TiltAxisAngle = degrees(EulerFromMatrix(Rotation).Z)
-#     Shift = Rotation.Transposed() * (-DX, -DY, 0);  Shift *= alignment_angpix
-# Warp's Matrix3*float3 is row-major (result.i = sum_j M[i,j] v[j]); Transposed() swaps
-# indices. Rotation's 2x2 block is therefore A^T (A = [[A11,A12],[A21,A22]] as read_xf loads
-# it), and Rotation.Transposed()'s 2x2 block is A, so the literal offset simplifies to
-#     Shift = A @ (-DX,-DY) * alignment_angpix = -A @ d * alignment_angpix.
-# This is DERIVED from the literal operation (not assumed): see the parity test that shows the
-# literal Matrix3 port and the simplified -A@d agree for every row. The answer is -A@d, NOT
-# -A.T@d and NOT the previous inv(A)@d. Angles/offsets are unaffected by any tilt-angle sign.
-
-_FLT_EPSILON = 1.1920929e-07
-
-
-def _matrix3_from_xf(a11: float, a12: float, a21: float, a22: float) -> np.ndarray:
-    """Warp Rotation: row-major 3x3 whose 2x2 block is A^T (VecX/VecY are A's columns)."""
-    return np.array([[a11, a21, 0.0],
-                     [a12, a22, 0.0],
-                     [0.0, 0.0, 1.0]], dtype=float)
-
-
-def euler_z_from_matrix(matrix3: np.ndarray) -> float:
-    """Warp EulerFromMatrix Z component (XMIPP/RELION ZYZ), radians.
-
-    Ported from the XMIPP ``Euler_matrix2angles`` convention Warp uses. For a pure in-plane
-    (Z-axis) rotation this returns that rotation's angle. Verified numerically against the
-    simplified in-plane form ``atan2(-A[1,0], A[0,0])`` in the parity tests.
-    """
-    a = np.asarray(matrix3, dtype=float).reshape(3, 3)
-    abs_sb = float(np.hypot(a[0, 2], a[1, 2]))
-    if abs_sb > 16 * _FLT_EPSILON:
-        gamma = float(np.arctan2(a[1, 2], -a[0, 2]))
-    else:
-        gamma = (float(np.arctan2(-a[1, 0], a[0, 0])) if np.sign(a[2, 2]) >= 0
-                 else float(np.arctan2(a[1, 0], -a[0, 0])))
-    return gamma
-
-
-def imod_xf_row_to_warp_alignment(xf_row: Sequence[float], alignment_angpix: float,
-                                  *, literal: bool = False) -> tuple[float, float, float]:
-    """One IMOD ``.xf`` row -> Warp ``(TiltAxisAngle_deg, TiltAxisOffsetX_A, TiltAxisOffsetY_A)``.
-
-    The SINGLE canonical conversion matching Warp's ``ts_import_alignments``. ``alignment_angpix``
-    is the pixel size of the grid the ``.xf`` translations live on (fail loudly if not positive);
-    the target/reconstruction pixel size is NOT used here and the offsets are returned in Angstrom.
-    ``literal=True`` runs the Matrix3 port verbatim; the default runs the proven-equivalent
-    simplified form. Independent of any tilt-angle sign, OFFSET or IMOD SHIFT.
-    """
-    row = np.asarray(xf_row, dtype=float).reshape(-1)
-    if row.size < 6:
-        raise ValueError("an IMOD .xf row needs 6 values [A11 A12 A21 A22 DX DY]")
-    a11, a12, a21, a22, dx, dy = (float(v) for v in row[:6])
-    if not (alignment_angpix and float(alignment_angpix) > 0):
-        raise ValueError(
-            f"alignment_angpix must be a positive pixel size resolved from the .xf grid, "
-            f"got {alignment_angpix!r}")
-    angpix = float(alignment_angpix)
-    rotation = _matrix3_from_xf(a11, a12, a21, a22)
-    tilt_axis_angle_deg = float(np.degrees(euler_z_from_matrix(rotation)))
-
-    if literal:                                   # literal Matrix3 port
-        shift0 = np.array([-dx, -dy, 0.0])
-        shift = rotation.T @ shift0               # Rotation.Transposed() * shift0 (row-major)
-        ox, oy = float(shift[0]) * angpix, float(shift[1]) * angpix
-    else:                                         # proven-equivalent simplified form
-        a = np.array([[a11, a12], [a21, a22]])
-        offset = -(a @ np.array([dx, dy])) * angpix
-        ox, oy = float(offset[0]), float(offset[1])
-    return tilt_axis_angle_deg, ox, oy
-
-
 def fit_affine(
     input_points_xy: np.ndarray, output_points_xy: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -562,10 +486,8 @@ __all__ = [
     "fit_affine",
     "forward_physical_map",
     "forward_points_pixels",
-    "euler_z_from_matrix",
     "homogeneous_to_xf",
     "image_center_xy",
-    "imod_xf_row_to_warp_alignment",
     "inverse_physical_map",
     "inverse_points_pixels",
     "movement_at_raw_absolute_physical",
