@@ -219,7 +219,8 @@ export LC_ALL=C
 export LANG=C
 export DOTNET_CLI_TELEMETRY_OPTOUT=1
 PIPELINE_PYTHON={shlex.quote(python_exe)}
-if [[ ! -x "$PIPELINE_PYTHON" ]]; then
+if [[ "$PIPELINE_PYTHON" != */* ]]; then PIPELINE_PYTHON="$(command -v "$PIPELINE_PYTHON" 2>/dev/null || true)"; fi
+if [[ -z "$PIPELINE_PYTHON" || ! -x "$PIPELINE_PYTHON" ]]; then
   echo "ERROR: reconstruction Python is not executable: $PIPELINE_PYTHON" >&2
   exit 2
 fi

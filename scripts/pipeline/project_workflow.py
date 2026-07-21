@@ -96,10 +96,14 @@ def _synchronous_warp_import(
     )
     warp_module = str(cluster_cfg.get("warp_module") or "").strip()
     environment = str(cluster_cfg.get("environment") or "").strip()
+    # When no explicit [cluster].environment is configured, the scientific Python is the
+    # one the modules put on PATH (e.g. CSSB's `missalign` module ships its own python with
+    # warpylib) — NOT this launcher's sys.executable, which is the base env without warpylib.
+    # A bare "python" is resolved with `command -v` in the shell after the module loads.
     python_exe = (
         str(Path(environment).expanduser() / "bin" / "python")
         if environment
-        else sys.executable
+        else "python"
     )
     conversion_script = Path(__file__).resolve().parents[1] / "run_warp_conversion.py"
 
@@ -133,7 +137,8 @@ def _synchronous_warp_import(
         "export LC_ALL=C",
         "export LANG=C",
         f"PIPELINE_PYTHON={shlex.quote(python_exe)}",
-        '[[ -x "$PIPELINE_PYTHON" ]] || { echo "ERROR: Python is not executable: $PIPELINE_PYTHON" >&2; exit 2; }',
+        'if [[ "$PIPELINE_PYTHON" != */* ]]; then PIPELINE_PYTHON="$(command -v "$PIPELINE_PYTHON" 2>/dev/null || true)"; fi',
+        '[[ -n "$PIPELINE_PYTHON" && -x "$PIPELINE_PYTHON" ]] || { echo "ERROR: Python not found/executable: $PIPELINE_PYTHON" >&2; exit 2; }',
         "\"$PIPELINE_PYTHON\" - <<'PY_WARP_IMPORT'",
         "import mrcfile",
         "import numpy",
