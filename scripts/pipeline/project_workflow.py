@@ -138,7 +138,14 @@ def _synchronous_warp_import(
         "export LANG=C",
         f"PIPELINE_PYTHON={shlex.quote(python_exe)}",
         'if [[ "$PIPELINE_PYTHON" != */* ]]; then PIPELINE_PYTHON="$(command -v "$PIPELINE_PYTHON" 2>/dev/null || true)"; fi',
-        '[[ -n "$PIPELINE_PYTHON" && -x "$PIPELINE_PYTHON" ]] || { echo "ERROR: Python not found/executable: $PIPELINE_PYTHON" >&2; exit 2; }',
+        # If the configured Python lacks warpylib but the module-provided one has it (e.g.
+        # convertMissalignment lives in a base env while the `missalign` module ships the
+        # warpylib python), use the module python. Works with MISSALIGN_ENV, a unified env,
+        # or just `module load missalign`.
+        'if [[ -z "$PIPELINE_PYTHON" ]] || ! "$PIPELINE_PYTHON" -c "import warpylib" >/dev/null 2>&1; then '
+        '_ALT="$(command -v python 2>/dev/null || true)"; '
+        'if [[ -n "$_ALT" ]] && "$_ALT" -c "import warpylib" >/dev/null 2>&1; then PIPELINE_PYTHON="$_ALT"; fi; fi',
+        '[[ -n "$PIPELINE_PYTHON" && -x "$PIPELINE_PYTHON" ]] || { echo "ERROR: no Python with warpylib (load the missalign module or set MISSALIGN_ENV)" >&2; exit 2; }',
         "\"$PIPELINE_PYTHON\" - <<'PY_WARP_IMPORT'",
         "import mrcfile",
         "import numpy",

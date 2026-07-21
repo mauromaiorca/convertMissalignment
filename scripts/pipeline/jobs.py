@@ -220,6 +220,12 @@ export LANG=C
 export DOTNET_CLI_TELEMETRY_OPTOUT=1
 PIPELINE_PYTHON={shlex.quote(python_exe)}
 if [[ "$PIPELINE_PYTHON" != */* ]]; then PIPELINE_PYTHON="$(command -v "$PIPELINE_PYTHON" 2>/dev/null || true)"; fi
+# Prefer a Python that actually has warpylib: if the configured one lacks it but the
+# module-provided `python` has it, use that (base-env launcher + missalign module case).
+if [[ -z "$PIPELINE_PYTHON" ]] || ! "$PIPELINE_PYTHON" -c "import warpylib" >/dev/null 2>&1; then
+  _ALT="$(command -v python 2>/dev/null || true)"
+  if [[ -n "$_ALT" ]] && "$_ALT" -c "import warpylib" >/dev/null 2>&1; then PIPELINE_PYTHON="$_ALT"; fi
+fi
 if [[ -z "$PIPELINE_PYTHON" || ! -x "$PIPELINE_PYTHON" ]]; then
   echo "ERROR: reconstruction Python is not executable: $PIPELINE_PYTHON" >&2
   exit 2

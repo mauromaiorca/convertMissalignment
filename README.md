@@ -268,6 +268,26 @@ convertMissalignment setup ...
 
 The bundled `maxwell` profile contains shared cluster settings but no personal user environment path.
 
+### Scientific environment via modules (no MISSALIGN_ENV needed)
+
+When the cluster provides warpylib + MissAlignment as **environment modules** rather than a
+conda env you own, you do **not** need to install your own copy or set `MISSALIGN_ENV`. Load
+the site modules and run:
+
+```bash
+module load cssb/rarely   # site-specific: exposes the missalign module
+module load missalign     # ships the WarpTools/MissAlignment python (with warpylib) + miss-alignment
+module load warp/2.0.39   # WarpTools/WarpWorker binaries
+convertMissalignment setup ...
+```
+
+The generated jobs load these same modules, and every Warp step auto-selects the Python that
+actually has `warpylib`: if the launcher's own interpreter lacks it, the pipeline falls back to
+the module-provided `python` (the one `module load missalign` puts on `PATH`). `MISSALIGN_ENV`
+/ `--missalign-env` still take precedence when you want to pin an explicit environment. The
+`missalign` module and an explicit `MISSALIGN_ENV` pointing at the same env prefix are
+equivalent — the module *is* that env; you are not expected to build a private duplicate.
+
 ## Commands
 
 ```text
