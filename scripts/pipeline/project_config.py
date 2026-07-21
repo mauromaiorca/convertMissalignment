@@ -210,6 +210,9 @@ class ClusterConfig:
     imod_module: Optional[str] = None
     imod_bin_dir: Optional[str] = None
     warp_module: Optional[str] = None
+    # Modules that provide warpylib + the MissAlignment stack (CSSB: ["cssb/rarely",
+    # "missalign"]). None -> the generated jobs use that CSSB default; [] disables.
+    missalign_modules: Optional[list] = None
     warp_tools_executable: Optional[str] = None
     warp_worker_executable: Optional[str] = None
     partition: str = "vds"

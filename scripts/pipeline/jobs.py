@@ -175,6 +175,23 @@ def _warptools_cluster(cluster, reconstruction_config: dict | None):
     return SimpleNamespace(**data), cluster_options
 
 
+# Cluster modules that provide warpylib + the MissAlignment stack. On the CSSB Maxwell
+# cluster this is `cssb/rarely` + `missalign` (the `warp/*` module only ships the WarpTools/
+# WarpWorker binaries, not warpylib). Override per project with [cluster].missalign_modules
+# (set to [] to disable on a cluster that does not need them).
+DEFAULT_MISSALIGN_MODULES = ["cssb/rarely", "missalign"]
+
+
+def _missalign_modules(cluster) -> list[str]:
+    mods = getattr(cluster, "missalign_modules", None)
+    return list(DEFAULT_MISSALIGN_MODULES if mods is None else mods)
+
+
+def _missalign_module_loads(cluster, *, soft: bool = False) -> str:
+    suffix = " 2>/dev/null || true" if soft else ""
+    return "\n".join(f"module load {shlex.quote(m)}{suffix}" for m in _missalign_modules(cluster))
+
+
 def _warptools_activation(cluster) -> str:
     """Strict WarpTools + scientific Python activation for the GPU job."""
     module_init = (
@@ -197,6 +214,7 @@ else
 fi
 module purge
 module load {shlex.quote(warp_module)}
+{_missalign_module_loads(cluster)}
 export LC_ALL=C
 export LANG=C
 export DOTNET_CLI_TELEMETRY_OPTOUT=1
@@ -229,6 +247,8 @@ def _missalignment_activation(cluster) -> str:
         out.append(f'[ -f {shlex.quote(cluster.module_init_script)} ] && source {shlex.quote(cluster.module_init_script)} || true')
     if getattr(cluster, "warp_module", None):
         out.append(f'module load {shlex.quote(cluster.warp_module)} 2>/dev/null || true')
+    for _m in _missalign_modules(cluster):
+        out.append(f'module load {shlex.quote(_m)} 2>/dev/null || true')
     if getattr(cluster, "environment", None):
         env = cluster.environment
         out.append(f'if [ -f {shlex.quote(env + "/bin/activate")} ]; then source {shlex.quote(env + "/bin/activate")}; '

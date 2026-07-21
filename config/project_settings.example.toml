@@ -51,6 +51,9 @@ environment = "/absolute/path/to/missalignment-environment"
 module_init_script = "/usr/share/Modules/init/bash"
 imod_module = "imod/5.1.11"
 warp_module = "warp/2.0.39"
+# Modules that provide warpylib + the MissAlignment stack. On CSSB Maxwell the warp module
+# only ships the WarpTools/WarpWorker binaries; warpylib comes from these. Set [] to disable.
+missalign_modules = ["cssb/rarely", "missalign"]
 partition = "vds"
 constraint = "V100"
 cpus = 16

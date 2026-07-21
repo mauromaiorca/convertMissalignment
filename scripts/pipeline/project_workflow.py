@@ -117,6 +117,13 @@ def _synchronous_warp_import(
             "module purge",
             f"module load {shlex.quote(warp_module)}",
         ])
+        # warpylib + MissAlignment live in separate modules (CSSB: cssb/rarely + missalign);
+        # the warp module only ships the WarpTools binaries. [cluster].missalign_modules
+        # overrides (set [] to disable).
+        missalign_modules = cluster_cfg.get("missalign_modules")
+        if missalign_modules is None:
+            missalign_modules = ["cssb/rarely", "missalign"]
+        module_lines.extend(f"module load {shlex.quote(m)}" for m in missalign_modules)
 
     force_arg = " --force" if force else ""
     shell = "\n".join([
