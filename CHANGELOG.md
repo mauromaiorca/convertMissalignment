@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.1.15
+
+- Preserves the full IMOD tilt.com tomogram-positioning geometry (THICKNESS, OFFSET,
+  XAXISTILT, SHIFT) end to end. New canonical `geometry.imod_positioning` module (parser
+  with tilt.com authority, `ImodPositioning`, documented IMOD->Warp conversion functions,
+  numpy projection oracle, positioning hash) plus the guarded converter application
+  (LevelAngleY/LevelAngleX/apply_tomogram_shift_3d) and `[geometry.imod_positioning]` config.
+- Propagates the positioning contract through the whole pipeline: it is parsed at `setup`,
+  carried on the `Geometry` dataclass, written to `[geometry.imod_positioning]` in the
+  resolved `project_settings.toml`, threaded through the warp staging manifest, the local
+  and cluster conversion (`run_warp_conversion.py`, `etomo_to_warp.process_tilt_series`) and
+  the legacy `02_convert_using_params.py`, and recorded in the conversion/validation
+  manifests. Its hash is part of the local cache identity and the cluster conversion marker,
+  so any OFFSET/XAXISTILT/SHIFT/pixel change forces reconversion and stale markers are
+  detected.
+- Adds `convertMissalignment export revise` — a source-aware revised-IMOD export (original
+  IMOD -> Warp -> MissAlignment -> revised IMOD). Both result backends converge into one
+  typed `ImodAlignmentRevision`; `H_final = DeltaH @ H_original` is composed in the validated
+  IMOD `(n-1)/2` centre convention. Publishes ONE physical `exported_data/imod/<condition_id>`
+  (configuration/, data/ relative raw-stack symlink, `reconstruct_with_imod.sh`, manifest,
+  per-tilt alignment-change report JSON/TSV/summary, `scipion_compatibility.json`) with a
+  single compatibility symlink at `missalignment/runs/<condition_id>/export/imod`. Complete
+  vs residual `.xf` are distinct; positioning is preserved unless refined; a non-affine
+  refined mapping is rejected (`non_affine_policy = "fail"`); the reconstruction script and
+  writer never touch `imported_data`. Configured under `[export.imod_revision]`; the optional
+  Scipion audit is a compatibility check only.
+- Adds canonical WarpTools reconstruction tiling (`--subvolume_size` 64, `--subvolume_padding`
+  6, padding >= 6 enforced), isotropic-XYZ padded context (not overlap), LC_ALL=C locale for
+  every WarpTools subprocess, reconstruction contract hash, resource preflight, pixel-size
+  consistency checks and a quantitative seam diagnostic. Wired into both ts_reconstruct paths.
+- Adds `scripts/pipeline/validate_warp_positioning.py` (cluster-side warpylib validation of the
+  LevelAngleX sign and XML round trip). Warp geometry is not treated as validated until it passes.
+
 ## 0.1.14
 
 - Corrects misleading wording in `inventory`. For conditions such as `raw_xf_affine_fixed`

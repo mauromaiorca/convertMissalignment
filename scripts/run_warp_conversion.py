@@ -29,6 +29,13 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 
 
+def positioning_marker_current(validation: dict, manifest_positioning_hash: str) -> bool:
+    """A conversion marker is positioning-current iff its recorded positioning hash
+    matches the staging manifest's. A pre-contract marker records no hash (defaults to
+    ``"none"``); if the manifest now carries a real positioning it is treated as stale."""
+    return str(validation.get("positioning_hash", "none")) == str(manifest_positioning_hash)
+
+
 def _count_rows(p: Path) -> int:
     return sum(1 for ln in p.read_text().splitlines() if ln.strip())
 
@@ -70,6 +77,11 @@ def main() -> int:
         print(f"ERROR: staging manifest not found: {args.staging_manifest}")
         return 2
     man = json.loads(args.staging_manifest.read_text())
+    # Canonical IMOD tilt.com positioning carried by the staging manifest (§ positioning
+    # propagation). A conversion marker written before this contract, or one whose recorded
+    # positioning hash differs, is stale and must be reconverted.
+    manifest_positioning_table = man.get("imod_positioning")
+    manifest_positioning_hash = man.get("positioning_hash") or "none"
     requested_training_dir = Path(args.training_dir or man["training_dir"]).absolute()
     training_dir = requested_training_dir.resolve()
     training_dir.mkdir(parents=True, exist_ok=True)
@@ -95,12 +107,20 @@ def main() -> int:
         validation_version >= 2
         or (validation_version == 1 and validation_quarter_turn_k % 2 == 0)
     )
+    positioning_is_current = positioning_marker_current(validation, manifest_positioning_hash)
     conversion_is_current = (
         (training_dir / "_converted.marker").is_file()
         and bool(list(training_dir.glob("*.xml")))
         and frame_contract_is_usable
         and bool(validation.get("warp_volume_shape_xyz"))
+        and positioning_is_current
     )
+    if (training_dir / "_converted.marker").is_file() and not positioning_is_current:
+        print(
+            "[warp-conversion] positioning contract changed "
+            f"(marker={validation.get('positioning_hash', 'none')[:12]} != "
+            f"manifest={manifest_positioning_hash[:12]}); reconverting"
+        )
     if not args.force and conversion_is_current:
         print(f"[warp-conversion] already converted with current volume-frame contract: {training_dir}")
         _publish_v8_dataset(requested_training_dir, man)
@@ -170,12 +190,20 @@ def main() -> int:
 
     target_shape_imod_mrc_xyz = tuple(man["target_volume_shape_xyz"])
     out_pix = float(man["target_pixel_size_A"])
+    # Rehydrate the canonical positioning object (OFFSET/XAXISTILT/SHIFT) and apply it in
+    # the converter. Absent table -> None keeps the prior no-positioning behaviour.
+    positioning = None
+    if manifest_positioning_table:
+        from geometry.imod_positioning import from_toml_table
+        positioning = from_toml_table(manifest_positioning_table)
+    level_angle_x_sign = int(man.get("level_angle_x_sign", -1))
     e2w.process_tilt_series(
         folder_path=ts_dir, output_directory=training_dir,
         tilt_axis_angle=float(man["tilt_axis_angle_deg"]),
         volume_shape=target_shape_imod_mrc_xyz,
         output_pixel_size=out_pix, alignment_mode=man["warp_alignment_mode"],
-        axis_frame=man["axis_frame"], grid_shape_xy=tuple(args.grid_shape))
+        axis_frame=man["axis_frame"], grid_shape_xy=tuple(args.grid_shape),
+        positioning=positioning, level_angle_x_sign=level_angle_x_sign)
 
     xmls = list(training_dir.glob("*.xml"))
     if not xmls:
@@ -243,6 +271,10 @@ def main() -> int:
         "volume_frame_contract_version": int(volume_frame.get("contract_version", 0)),
         "volume_frame": volume_frame,
         "conversion_manifest": str(conversion_manifest_path),
+        "imod_positioning": manifest_positioning_table,
+        "positioning_hash": manifest_positioning_hash,
+        "positioning_applied": bool(positioning is not None),
+        "level_angle_x_sign": level_angle_x_sign,
         "volume_invariant_ok": True}, indent=2) + "\n")
     _publish_v8_dataset(requested_training_dir, man)
     print(f"[warp-conversion] OK: {len(xmls)} XML(s) in {training_dir} (validated)")

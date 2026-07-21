@@ -80,6 +80,9 @@ class PreConversionPlan:
     perdevice: int
     dataset_id: str
     public_reconstruction_dir: Path
+    subvolume_size: int = 64
+    subvolume_padding: int = 6
+    normalize: bool = False
 
 
 def _next_attempt(layout) -> Path:
@@ -137,6 +140,10 @@ def build_plan(
     if selected in (None, 0, 0.0) and configured_angpix not in (None, 0, 0.0):
         selected = float(configured_angpix)
 
+    from pipeline.reconstruction_tiling import resolve_tiling
+    tiling = resolve_tiling(wt)   # validates subvolume_size/padding (padding >= 6)
+    normalize = bool(wt.get("normalize", False))
+
     return PreConversionPlan(
         settings_path=Path(settings_path).resolve(),
         run_dir=layout.run_dir,
@@ -158,6 +165,9 @@ def build_plan(
         perdevice=int(perdevice),
         dataset_id=layout.dataset_id,
         public_reconstruction_dir=layout.warp_reconstructions_dir,
+        subvolume_size=tiling.subvolume_size,
+        subvolume_padding=tiling.subvolume_padding,
+        normalize=normalize,
     )
 
 
@@ -332,27 +342,22 @@ def run_reconstruction(plan: PreConversionPlan) -> dict[str, Any]:
         log_path=plan.attempt_dir / "create_settings.log",
     )
 
+    from pipeline.reconstruction_tiling import ReconstructionTiling, build_ts_reconstruct_command
+
+    tiling = ReconstructionTiling(plan.subvolume_size, plan.subvolume_padding)
     _run(
-        [
+        build_ts_reconstruct_command(
             executable,
-            "ts_reconstruct",
-            "--settings",
-            str(plan.warptools_settings),
-            "--input_data",
-            str(plan.tomostar),
-            "--input_processing",
-            str(plan.input_processing),
-            "--output_processing",
-            str(plan.output_processing),
-            "--angpix",
-            f"{output_angpix:.12g}",
-            "--device_list",
-            plan.device_list,
-            "--perdevice",
-            str(plan.perdevice),
-            "--dont_invert",
-            "--dont_normalize",
-            "--dont_mask",
+            settings=plan.warptools_settings,
+            input_data=plan.tomostar,
+            output_angpix=output_angpix,
+            device_list=plan.device_list,
+            perdevice=plan.perdevice,
+            tiling=tiling,
+            normalize=plan.normalize,
+        ) + [
+            "--input_processing", str(plan.input_processing),
+            "--output_processing", str(plan.output_processing),
         ],
         cwd=plan.work_dir,
         log_path=plan.attempt_dir / "pre_conversion_reconstruct.log",

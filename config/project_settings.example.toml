@@ -80,6 +80,45 @@ executable = "WarpTools"
 output_angpix_A = 0.0
 device_list = "0"
 perdevice = 1
+# Block tiling for ts_reconstruct. subvolume_padding is a single ISOTROPIC XYZ padding
+# factor (padded side = subvolume_size * padding * 2 = 768 px for 64/6). It is padded
+# reconstruction CONTEXT, not true final-volume overlap (blocks are stride=subvolume_size,
+# central crop copied directly, output overlap = 0). Padding 6 costs (6/3)^3 = 8x the
+# cubic allocation of Warp's default 3; on CUDA OOM reduce --perdevice first, not padding.
+subvolume_size = 64
+subvolume_padding = 6          # this project requires >= 6; lower values are rejected
+normalize = false              # keep --dont_normalize (test normalisation separately)
+
+# IMOD tomogram-positioning parsed from tilt.com (OFFSET/XAXISTILT/SHIFT). Written by setup;
+# override here to force a value. tilt_axis_angle_deg (detector) is a DIFFERENT quantity from
+# tilt_angle_offset_deg and x_axis_tilt_deg. SHIFT is scaled by the UNBINNED IMOD pixel size.
+[geometry.imod_positioning]
+contract_version = 1
+tilt_angle_offset_deg = -11.5      # tilt.com OFFSET   -> Warp LevelAngleY (applied once)
+x_axis_tilt_deg = 1.82             # tilt.com XAXISTILT -> Warp LevelAngleX (sign from cluster oracle)
+shift_x_unbinned_px = 0.0          # tilt.com SHIFT[0] -> Warp object-space X (Angstrom)
+shift_z_unbinned_px = -8.1         # tilt.com SHIFT[1] -> Warp object-space Z/thickness (Angstrom)
+unbinned_pixel_size_A = 2.0        # required to scale SHIFT to Angstrom (example value)
+thickness_unbinned_px = 1200
+source_kind = "tilt.com"
+
+# Revised-IMOD export (source-aware round trip: original IMOD -> Warp -> MissAlignment
+# -> revised IMOD). Published ONCE under exported_data/imod/<condition_id>; the run-level
+# missalignment/runs/<condition_id>/export/imod path is only a compatibility symlink.
+[export.imod_revision]
+enabled = true
+output_root = "exported_data/imod"
+mode = "compose_with_original"          # H_final = DeltaH @ H_original
+non_affine_policy = "fail"              # never silently export a non-representable .xf
+affine_fit_rms_tolerance_px = 0.10
+affine_fit_max_tolerance_px = 0.25
+angle_representation = "preserve_original_decomposition"   # effective = tlt + OFFSET
+global_positioning_policy = "preserve_unless_refined"      # OFFSET/XAXISTILT/SHIFT kept
+shift_recovery_policy = "provenance_or_constrained_fit"
+thickness_policy = "preserve_original"
+write_residual_xf = true               # <series>.residual.xf is diagnostic (DeltaH) only
+run_imod_reconstruction_validation = true
+overwrite_source = false               # imported_data/imod is never modified
 
 [provenance]
 resolved = true

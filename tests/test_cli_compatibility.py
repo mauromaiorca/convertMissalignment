@@ -55,9 +55,9 @@ def test_reconstruct_requires_dataset_when_ambiguous(tmp_path: Path) -> None:
     assert reconstruct([str(project), "--dataset", "5.452Apx", "--print"]) == 0
 
 
-def test_distribution_source_version_is_0_1_14() -> None:
-    assert __version__ == "0.1.14"
-    assert (ROOT / "VERSION").read_text().strip() == "0.1.14"
+def test_distribution_source_version_is_0_1_15() -> None:
+    assert __version__ == "0.1.15"
+    assert (ROOT / "VERSION").read_text().strip() == "0.1.15"
 
 
 def test_translation_condition_is_backward_compatible() -> None:
@@ -80,7 +80,7 @@ def test_module_version_command() -> None:
         check=False,
     )
     assert completed.returncode == 0, completed.stderr
-    assert "0.1.14" in completed.stdout
+    assert "0.1.15" in completed.stdout
 
 
 def test_historical_setup_help_accepts_translation() -> None:

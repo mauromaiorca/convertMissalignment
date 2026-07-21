@@ -195,6 +195,11 @@ class Geometry:
     target_pixel_size_A: Optional[float] = None
     target_volume_physical_A: Optional[list] = None
     target_volume_source: Optional[str] = None
+    # Canonical IMOD tilt.com positioning (OFFSET/XAXISTILT/SHIFT/THICKNESS) as the
+    # resolved [geometry.imod_positioning] table produced by geometry.imod_positioning.
+    # Carried verbatim through to_dict/from_dict so it survives every round-trip and is
+    # never silently dropped between the source parse and the Warp application.
+    imod_positioning: Optional[dict] = None
 
 
 @dataclass

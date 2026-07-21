@@ -542,6 +542,23 @@ def parse_imod_scalars(imod_dir: Path, mdoc_path: Path | None) -> dict[str, Any]
     m = re.search(rf"(?im)^\s*PixelSpacing\s*=\s*({NUMBER_RE})", mdoc_text)
     mdoc_pixel_A = float(m.group(1)) if m else None
 
+    # IMOD tomogram-positioning (OFFSET / XAXISTILT / SHIFT). tilt.com is authoritative:
+    # parsed from tilt.com ALONE by the canonical geometry.imod_positioning module, never
+    # from the concatenated tilt.com+tilt.log text (which could accept a stale log entry).
+    # tilt.log is used only as an explicitly-recorded per-field fallback.
+    unbinned_pixel_A = unbinned_pixel_nm * 10.0 if unbinned_pixel_nm is not None else mdoc_pixel_A
+    _here = Path(__file__).resolve().parent
+    if str(_here) not in sys.path:
+        sys.path.insert(0, str(_here))
+    from geometry.imod_positioning import parse_imod_positioning
+
+    positioning = parse_imod_positioning(
+        imod_dir / "tilt.com",
+        unbinned_pixel_size_A=unbinned_pixel_A,
+        thickness_unbinned_px=int(thickness) if thickness is not None else None,
+        tilt_log_path=imod_dir / "tilt.log",
+    )
+
     return {
         "unbinned_pixel_size_nm_from_align": unbinned_pixel_nm,
         "unbinned_pixel_size_A_from_align": unbinned_pixel_nm * 10.0 if unbinned_pixel_nm is not None else None,
@@ -549,6 +566,9 @@ def parse_imod_scalars(imod_dir: Path, mdoc_path: Path | None) -> dict[str, Any]
         "thickness_unbinned_px_from_tilt": int(thickness) if thickness is not None else None,
         "fullimage_yx_from_tilt": fullimage_yx,
         "pixel_spacing_A_from_mdoc": mdoc_pixel_A,
+        # canonical IMOD positioning: full manifest and the resolved TOML table
+        "imod_positioning": positioning.to_manifest(),
+        "imod_positioning_table": positioning.to_toml_table(),
     }
 
 def build_params(etomo_dir: Path) -> dict[str, Any]:
@@ -774,6 +794,9 @@ def build_params(etomo_dir: Path) -> dict[str, Any]:
             "target_volume_shape_xyz": target_volume_xyz,
             "raw_volume_shape_xyz_for_converter": raw_volume_xyz,
             "aligned_volume_shape_xyz_for_converter": ali_volume_xyz or target_volume_xyz,
+            # canonical IMOD tilt.com positioning table (mirrors imod_parameters), so the
+            # legacy 02_convert path can propagate it without digging into imod_parameters.
+            "imod_positioning": scalars.get("imod_positioning_table"),
         },
         "conditions": conditions,
         "warnings": warnings,

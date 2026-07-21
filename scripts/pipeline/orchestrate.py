@@ -562,6 +562,15 @@ def orchestrate(*, config: dict, out_dir: Path, data_dir: Path | None, basename:
     if not warp_alignment_mode:
         warp_alignment_mode = PC.warp_alignment_mode_for(condition)
     geomcfg = config.get("geometry", {})
+    # Canonical IMOD tilt.com positioning carried by the resolved config. Present -> the
+    # ImodPositioning object feeds the converter and its hash keys the cache; absent (old
+    # project) -> None keeps the prior no-positioning behaviour.
+    from geometry.imod_positioning import from_toml_table as _pos_from_toml
+    _pos_table = geomcfg.get("imod_positioning")
+    positioning = _pos_from_toml(_pos_table) if _pos_table else None
+    positioning_hash = positioning.positioning_hash() if positioning else "none"
+    level_angle_x_sign = int((config.get("geometry", {}).get("imod_positioning", {}) or {}).get(
+        "level_angle_x_sign", -1))
     eff_geom = PC.Geometry(**{k: geomcfg.get(k) for k in PC.Geometry().__dict__})
     ci = PC.condition_input_from_paths(
         condition, raw_stack=inputs.get("source_raw"), aligned_stack=inputs.get("source_aligned"),
@@ -631,12 +640,15 @@ def orchestrate(*, config: dict, out_dir: Path, data_dir: Path | None, basename:
                 folder_path=ts_dir, output_directory=training_dir,
                 tilt_axis_angle=float(tilt_axis), volume_shape=tuple(target_shape),
                 output_pixel_size=out_pix, alignment_mode=warp_alignment_mode,
-                axis_frame=axis_frame, grid_shape_xy=(5, 5))
+                axis_frame=axis_frame, grid_shape_xy=(5, 5),
+                positioning=positioning, level_angle_x_sign=level_angle_x_sign)
         # 2.6: NO swallow. Conversion failure is a hard error (the MissAlignment job
-        # must never run against an empty training dir).
+        # must never run against an empty training dir). The positioning hash is part of
+        # the command identity so any OFFSET/XAXISTILT/SHIFT/pixel change reconverts.
         do("warp_convert", _hash_file(stage_stack.path),
            _hash_obj(["etomo_to_warp", warp_alignment_mode, axis_frame, tilt_axis,
-                      _hash_file(xf_staged) if xf_staged else "identity"]),
+                      _hash_file(xf_staged) if xf_staged else "identity",
+                      positioning_hash, level_angle_x_sign]),
            list(training_dir.glob("*.xml")) or [training_dir / "_converted.marker"], _mk_warp)
         warp_state["converted_locally"] = True
         def _mk_warp_validate():
@@ -702,6 +714,9 @@ def orchestrate(*, config: dict, out_dir: Path, data_dir: Path | None, basename:
                              else inputs.get("source_aligned"))),
             "tilt_file": inputs.get("tilt_file"),
             "staged_xf": xf_staged, "is_identity": ci.is_identity,
+            "imod_positioning": _pos_table,
+            "positioning_hash": positioning_hash,
+            "level_angle_x_sign": level_angle_x_sign,
             "condition_input": ci.to_dict(), "training_dir": str(training_dir)}
         (res_dir / "warp_staging_manifest.json").write_text(json.dumps(staging_manifest, indent=2))
         warp_state["staging_manifest"] = str(res_dir / "warp_staging_manifest.json")

@@ -199,6 +199,24 @@ def make_staging_for_condition(
     return condition_input_dir, ts_name, config
 
 
+def resolve_positioning_table(params: dict[str, Any]) -> dict[str, Any] | None:
+    """The resolved [geometry.imod_positioning] table, preferring the geometry copy."""
+    geom = params.get("geometry", {}) or {}
+    table = geom.get("imod_positioning")
+    if table:
+        return table
+    return (params.get("imod_parameters", {}) or {}).get("imod_positioning_table")
+
+
+def write_positioning_json(table: dict[str, Any] | None, out_dir: Path) -> Path | None:
+    """Materialise the positioning table so the converter can apply it (legacy path)."""
+    if not table:
+        return None
+    path = out_dir / "imod_positioning.json"
+    path.write_text(json.dumps(table, indent=2) + "\n")
+    return path
+
+
 def converter_command(
     converter: Path,
     input_dir: Path,
@@ -207,9 +225,10 @@ def converter_command(
     config: dict[str, Any],
     output_pixel_size: float,
     grid_shape_xy: tuple[int, int],
+    positioning_json: Path | None = None,
 ) -> list[str]:
     volume = config["volume_shape_xyz"]
-    return [
+    command = [
         sys.executable,
         str(converter),
         "--input-dir",
@@ -230,6 +249,9 @@ def converter_command(
         str(grid_shape_xy[0]),
         str(grid_shape_xy[1]),
     ]
+    if positioning_json is not None:
+        command.extend(["--imod-positioning-json", str(positioning_json)])
+    return command
 
 
 def shell_quote(command: list[str]) -> str:
@@ -294,6 +316,10 @@ def main() -> int:
     if tilt_axis is None:
         raise SystemExit("ERROR: tilt-axis angle is missing")
 
+    positioning_json = write_positioning_json(resolve_positioning_table(params), out_dir)
+    if positioning_json is not None:
+        print(f"Applying IMOD positioning (OFFSET/XAXISTILT/SHIFT): {positioning_json}")
+
     commands: list[list[str]] = []
     for condition in args.conditions:
         input_dir, _ts_name, config = make_staging_for_condition(
@@ -315,6 +341,7 @@ def main() -> int:
                 config,
                 float(pixel),
                 tuple(int(x) for x in args.movement_grid_shape),
+                positioning_json=positioning_json,
             )
         )
 

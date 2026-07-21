@@ -228,6 +228,11 @@ def main() -> int:
     # Phase-3 subcommand interface; legacy flat flags still supported below.
     if len(sys.argv) > 1 and sys.argv[1] in FINALIZE_SUBCOMMANDS:
         return _dispatch_finalize(sys.argv[1], sys.argv[2:])
+    if len(sys.argv) > 1 and sys.argv[1] == "revise":
+        # Publish the revised IMOD alignment under exported_data/imod/<condition_id>.
+        # scripts/ is already on sys.path (module import above), so pipeline.* imports.
+        from pipeline.imod_revision_export import main as revise_main
+        return revise_main(sys.argv[2:])
     return _legacy_export_main()
 
 

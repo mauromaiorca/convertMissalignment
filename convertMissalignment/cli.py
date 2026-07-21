@@ -619,6 +619,8 @@ def export_guide(argv: list[str]) -> int:
     print("It needs a completed full MissAlignment run.\n")
     print("Run one of:\n")
     print(f"  convertMissalignment export finalize {_short(settings)}")
+    print(f"  convertMissalignment export revise   {_short(settings)}"
+          "   # publish revised IMOD under exported_data/imod/<condition_id>")
     for dataset in datasets or ["<dataset>"]:
         batch = project / "batches" / "export" / dataset / "export_imod_and_reconstruct.sbatch"
         print(f"  sbatch {_short(batch)}")

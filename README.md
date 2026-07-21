@@ -2,7 +2,7 @@
 
 `convertMissAlignment` is a command-line pipeline for importing IMOD/eTomo tilt-series projects into Warp, preparing MissAlignment inputs, generating Slurm jobs, validating reconstructions, and exporting results back to IMOD.
 
-The Python distribution version is **0.1.14**. The bundled processing pipeline is based on **MissAlignment pipeline 8.0.0-alpha6-optional-smoke-run**.
+The Python distribution version is **0.1.15**. The bundled processing pipeline is based on **MissAlignment pipeline 8.0.0-alpha6-optional-smoke-run**.
 
 ## Compatibility
 
@@ -12,7 +12,7 @@ The historical command and Python entry point are retained:
 command:       convertMissalignment
 entry point:   convertMissalignment.cli:main
 distribution:  convertMissAlignment
-version:       0.1.14
+version:       0.1.15
 ```
 
 Existing commands such as the following remain valid:
@@ -69,7 +69,7 @@ convertMissalignment doctor
 Expected package version:
 
 ```text
-0.1.14
+0.1.15
 ```
 
 `convertMissalignment where` reports the executable, Python interpreter, environment, installed package directory, and source root. This is the recommended way to identify an editable checkout.
@@ -143,6 +143,94 @@ sbatch /path/to/output/TS1/batches/missalignment/5.45Apx/compare_reconstructions
 sbatch /path/to/output/TS1/batches/export/5.45Apx/export_imod_and_reconstruct.sbatch
 ```
 
+## IMOD tomogram positioning (tilt.com)
+
+`setup` parses four `tilt.com` reconstruction-positioning parameters (tilt.com is
+authoritative; tilt.log is only a recorded fallback) and records them under
+`[geometry.imod_positioning]` in `project_settings.toml` and in every conversion manifest:
+
+| tilt.com | resolved field | units | Warp representation |
+| --- | --- | --- | --- |
+| `OFFSET` | `tilt_angle_offset_deg` | degrees | `LevelAngleY` (effective angle = raw + OFFSET, applied once; raw `.tlt` kept) |
+| `XAXISTILT` | `x_axis_tilt_deg` | degrees | `LevelAngleX` (sign confirmed on the cluster) |
+| `SHIFT sx sz` | `shift_x/z_unbinned_px` | unbinned pixels | object-space translation (`apply_tomogram_shift_3d`), Å = px × **unbinned** IMOD pixel size |
+| `THICKNESS` | `thickness_unbinned_px` | unbinned pixels | target-volume geometry |
+
+These three are **different** quantities and are kept separate: the detector
+`tilt_axis_angle_deg`, the tilt-`tilt_angle_offset_deg`, and the `x_axis_tilt_deg`.
+Precedence per field: explicit project/CLI override > `tilt.com` > documented zero default.
+Override any field in `[geometry.imod_positioning]`. A non-zero `SHIFT` without a resolvable
+unbinned pixel size fails loudly (no guessed scale). Inspect the resolved values with
+`convertMissalignment inventory` / the `imod_positioning` block in `*.conversion.json`.
+The positioning hash is part of the conversion cache: changing any value forces reconversion.
+
+The Warp geometric correctness (the `LevelAngleX` sign and the XML round-trip) is validated
+**on the cluster** by `scripts/pipeline/validate_warp_positioning.py`, which uses the installed
+warpylib. Until it reports success the Warp positioning is not considered validated.
+
+## Reconstruction block tiling and the seam artefact
+
+`ts_reconstruct` runs with explicit `--subvolume_size` (default 64) and `--subvolume_padding`
+(default 6; this project **requires >= 6**, lower values are rejected, never silently replaced).
+`subvolume_padding` is a single **isotropic XYZ** padding factor: the padded reconstruction side
+is `subvolume_size * padding * 2` (768 px for 64/6), in X, Y **and** Z. It provides padded
+reconstruction *context*, **not** true final-volume overlap — blocks are strided by
+`subvolume_size`, the central crop is copied directly into the output, so the actual output
+overlap is **0**. The block-boundary artefact can look stronger in XZ than XY because of
+tomographic anisotropy, but the padding acts in all three axes.
+
+Padding 6 costs `(6/3)^3 = 8×` the cubic allocation of Warp's default 3; a preflight reports
+the padded side and ratios. On CUDA OOM reduce `--perdevice 1` first, never silently drop the
+padding. Reconstructions carry a parameter-specific identity (`reconstruction_s64_p6`) and a
+contract hash (tiling + angpix + normalisation + WarpTools version + numeric locale); changing
+any of these invalidates the cache, so a padding-3 volume is never reused for a padding-6 request.
+Every WarpTools subprocess runs with `LC_ALL=C`/`LANG=C` so no comma decimals corrupt the XML
+(validated after save). Measure the seam quantitatively with `scripts/pipeline/seam_diagnostic.py`
+(XY/XZ/YZ boundary-to-control ratios). Padding 6 is not claimed to fix the artefact unless its
+seam ratio is lower than the padding-3 reference.
+
+## Revised IMOD alignment export (source-aware round trip)
+
+`convertMissalignment export revise <settings>` publishes the refined alignment back to
+IMOD as a **source-aware round trip** — original IMOD → Warp → MissAlignment → revised
+IMOD — not a generic Warp→IMOD converter and never a new unrelated IMOD project. Both
+result backends (`constrained_json`, `warp_xml`) converge into one typed
+`ImodAlignmentRevision` before any file is written, and the composition is always
+
+```text
+H_final = DeltaH @ H_original          (in the validated IMOD (n-1)/2 centre convention)
+```
+
+where `H_original` is the imported raw→aligned `.xf`, `DeltaH` is the MissAlignment
+correction in the aligned frame, and `H_final` is the revised raw→aligned transform.
+
+There is **one** physical export directory and **one** compatibility symlink:
+
+```text
+exported_data/imod/<condition_id>/                 # the single physical export
+    configuration/  <series>.xf .residual.xf .tlt .xtilt tilt.com newst.com
+    data/           <series>.mrc -> imported raw stack (relative symlink, never copied)
+    reconstruct_with_imod.sh
+    manifest.json
+    alignment_change_report.json / .tsv / _summary.txt
+    scipion_compatibility.json
+missalignment/runs/<condition_id>/export/imod  ->  exported_data/imod/<condition_id>
+```
+
+`<condition_id>` is the canonical dataset id (e.g. `17.6Apx`), never the measured pixel
+size (`17.596357Apx`), which is stored in the manifest. `<series>.xf` is the **complete**
+revised transform; `<series>.residual.xf` is the diagnostic `DeltaH` only and is never
+referenced as the complete alignment. `OFFSET/XAXISTILT/SHIFT/THICKNESS` are preserved
+(effective angle = `.tlt` + `OFFSET`, applied once; `XAXISTILT` is only revised after its
+Warp sign is cluster-validated). A per-tilt refined mapping that is not representable as an
+affine within tolerance is rejected under `non_affine_policy = "fail"` rather than exported
+as a misleading `.xf`. `reconstruct_with_imod.sh` (self-locating, `set -euo pipefail`) checks
+the IMOD executables, the raw-stack link, source hashes, `.xf`/`.tlt` row counts and that the
+output is not under `imported_data`, then runs `newstack` + `tilt`; it never overwrites the
+imported aligned stack or reconstruction. Configure it under `[export.imod_revision]`; the
+Scipion audit (`scipion_compatibility.json`) is an optional compatibility check, never the
+production writer, and the export works when Scipion is absent.
+
 ## Project layout
 
 ```text
@@ -150,6 +238,7 @@ PROJECT/
 ├── project_settings.toml
 ├── imported_data/imod/
 ├── warp_data/<pixel_size>/
+├── exported_data/imod/<condition_id>/
 ├── batches/{import,warp_data,missalignment,export}/
 ├── logs/
 ├── missalignment/runs/<pixel_size>/

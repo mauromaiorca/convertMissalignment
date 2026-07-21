@@ -2,7 +2,7 @@
 
 ## Existing workflow compatibility
 
-Version 0.1.14 is designed to replace the previous editable installation without changing the historical executable name.
+Version 0.1.15 is designed to replace the previous editable installation without changing the historical executable name.
 
 The following command remains supported:
 
@@ -69,7 +69,7 @@ convertMissalignment --version
 convertMissalignment version
 ```
 
-Both commands report package version `0.1.14`.
+Both commands report package version `0.1.15`.
 
 The bundled pipeline revision is shown by:
 
@@ -140,3 +140,42 @@ python -m pip install -e .
 ```
 
 A wheel installation is independent of the original source checkout because its files are copied into the Python environment.
+
+## IMOD positioning and reconstruction tiling
+
+`setup` now parses tilt.com OFFSET/XAXISTILT/SHIFT/THICKNESS into `[geometry.imod_positioning]`
+and runs `ts_reconstruct` with `--subvolume_size 64 --subvolume_padding 6` (isotropic XYZ
+padded context, not overlap). See the README sections "IMOD tomogram positioning (tilt.com)"
+and "Reconstruction block tiling and the seam artefact". Validate Warp geometry on the cluster
+with `scripts/pipeline/validate_warp_positioning.py`; measure seams with
+`scripts/pipeline/seam_diagnostic.py`.
+
+The parsed positioning is carried end to end — `Geometry`, the resolved
+`project_settings.toml`, the warp staging manifest, local and cluster conversion, and the
+conversion/validation manifests — and its hash is part of the conversion cache and cluster
+marker, so changing any value forces reconversion.
+
+## Revised IMOD alignment export
+
+After a completed full run and `convertMissalignment export finalize <settings>`, publish the
+refined alignment back to IMOD:
+
+```bash
+convertMissalignment export revise <settings>
+# or, on the cluster, the generated batch that runs revise + reconstruct_with_imod.sh:
+sbatch batches/export/<condition_id>/export_imod_and_reconstruct.sbatch
+```
+
+This writes ONE physical `exported_data/imod/<condition_id>/` (with a compatibility symlink at
+`missalignment/runs/<condition_id>/export/imod`) containing the revised
+`configuration/<series>.xf` (`H_final = DeltaH @ H_original`), the diagnostic
+`<series>.residual.xf`, revised `.tlt`/`.xtilt`/`tilt.com`/`newst.com`, a `data/<series>.mrc`
+relative symlink to the imported raw stack, `reconstruct_with_imod.sh`, `manifest.json`, the
+`alignment_change_report.{json,tsv}` + `_summary.txt`, and `scipion_compatibility.json`. It
+never modifies `imported_data`. Configure behaviour under `[export.imod_revision]`
+(`non_affine_policy`, affine-fit tolerances, positioning/angle policies). Then reconstruct:
+
+```bash
+exported_data/imod/<condition_id>/reconstruct_with_imod.sh                 # default output
+exported_data/imod/<condition_id>/reconstruct_with_imod.sh --output-dir /path
+```

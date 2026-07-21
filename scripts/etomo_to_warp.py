@@ -60,6 +60,49 @@ def create_zero_grid(n_tilts: int) -> CubicGrid:
     return CubicGrid((1, 1, max(1, n_tilts)))
 
 
+def apply_imod_positioning(ts, positioning, *, level_angle_x_sign: int = -1) -> dict:
+    """Apply IMOD tilt.com positioning to a Warp ``TiltSeries`` (mandatory-policy mapping).
+
+    OFFSET    -> ``ts.level_angle_y`` (raw angles stay in ``ts.angles``; applied EXACTLY ONCE)
+    XAXISTILT -> ``ts.level_angle_x = level_angle_x_sign * XAXISTILT`` (sign confirmed only by
+                 the cluster validation script; NOT inferred from field names)
+    SHIFT     -> object-space translation via ``ts.apply_tomogram_shift_3d([x, y, z] Angstrom)``,
+                 composed with (not replacing) the existing .xf-derived per-tilt offsets.
+
+    Never sets both ``ts.angles += OFFSET`` and ``ts.level_angle_y``. Raises if a non-zero
+    SHIFT is requested but the installed warpylib ``TiltSeries`` cannot represent it.
+    """
+    import torch
+
+    offset = float(positioning.tilt_angle_offset_deg)
+    xaxis = float(positioning.x_axis_tilt_deg)
+    ts.level_angle_y = offset                          # OFFSET; ts.angles unchanged (raw)
+    ts.level_angle_x = float(level_angle_x_sign) * xaxis
+    applied = {
+        "warp_level_angle_y_deg": offset,
+        "warp_level_angle_x_deg": float(level_angle_x_sign) * xaxis,
+        "level_angle_x_sign": int(level_angle_x_sign),
+        "level_angle_x_sign_validated": False,          # confirmed by validate_warp_positioning.py
+        "shift_representation": "none",
+        "positioning_hash": positioning.positioning_hash(),
+    }
+    if positioning.has_nonzero_shift:
+        if positioning.unbinned_pixel_size_A is None:
+            raise ValueError("non-zero tilt.com SHIFT requires the unbinned IMOD pixel size")
+        shift_A = [float(positioning.shift_x_A), 0.0, float(positioning.shift_z_A)]  # (X, Y, Z)
+        method = getattr(ts, "apply_tomogram_shift_3d", None)
+        if not callable(method):
+            raise ValueError(
+                "tilt.com SHIFT is non-zero but the installed warpylib TiltSeries has no "
+                "apply_tomogram_shift_3d(); it cannot represent the reconstruction shift. "
+                "Use a warpylib version that supports it, or represent the shift as constant "
+                "GridVolumeWarp values.")
+        method(torch.tensor(shift_A, dtype=torch.float32))
+        applied["shift_representation"] = "apply_tomogram_shift_3d"
+        applied["warp_object_shift_A"] = shift_A
+    return applied
+
+
 def process_tilt_series(
     folder_path: Path,
     output_directory: Path,
@@ -69,6 +112,8 @@ def process_tilt_series(
     alignment_mode: str,
     axis_frame: str,
     grid_shape_xy: tuple[int, int],
+    positioning=None,
+    level_angle_x_sign: int = -1,
 ) -> tuple[TiltSeries, Path]:
     if alignment_mode not in ALIGNMENT_MODES:
         raise ValueError(f"unknown alignment mode {alignment_mode!r}")
@@ -204,6 +249,15 @@ def process_tilt_series(
         axis_angles = [float(axis_input_angle)] * n_tilts
     ts.tilt_axis_angles = torch.tensor(axis_angles, dtype=torch.float32)
 
+    # IMOD tilt.com positioning (OFFSET/XAXISTILT/SHIFT). Applied after the raw angles and
+    # tilt-axis angles are set; the raw .tlt stays in ts.angles. No-op when positioning is
+    # None (backward compatible). The .xf-derived offsets/movement grids below are composed
+    # with, not replaced by, this positioning.
+    warp_positioning_applied = None
+    if positioning is not None:
+        warp_positioning_applied = apply_imod_positioning(
+            ts, positioning, level_angle_x_sign=level_angle_x_sign)
+
     height, width = map(int, images.shape[-2:])
     ts.image_dimensions_physical = torch.tensor(
         [width * final_pixel_size, height * final_pixel_size], dtype=torch.float32
@@ -278,6 +332,10 @@ def process_tilt_series(
         write_xf(residual_xf_path, matrices, shifts)
         manifest["quarter_turn"] = quarter_turn_manifest
         manifest["residual_xf_file"] = str(residual_xf_path.resolve())
+
+    if positioning is not None:
+        manifest["imod_positioning"] = positioning.to_manifest()
+        manifest["warp_positioning_applied"] = warp_positioning_applied
 
     if alignment_mode == "identity":
         ts.tilt_axis_offset_x = torch.zeros(n_tilts, dtype=torch.float32)
@@ -377,7 +435,25 @@ def main() -> int:
         default=(5, 5),
         metavar=("NX", "NY"),
     )
+    parser.add_argument(
+        "--imod-positioning-json",
+        type=Path,
+        default=None,
+        help=(
+            "Path to a JSON file holding the resolved [geometry.imod_positioning] table "
+            "(OFFSET/XAXISTILT/SHIFT/THICKNESS). When given, the positioning is applied "
+            "to every TiltSeries so the legacy path preserves it like the canonical path."
+        ),
+    )
+    parser.add_argument("--level-angle-x-sign", type=int, choices=(1, -1), default=-1)
     args = parser.parse_args()
+
+    positioning = None
+    if args.imod_positioning_json is not None:
+        if not args.imod_positioning_json.is_file():
+            raise SystemExit(f"ERROR: --imod-positioning-json not found: {args.imod_positioning_json}")
+        from geometry.imod_positioning import from_toml_table
+        positioning = from_toml_table(json.loads(args.imod_positioning_json.read_text()))
 
     input_directory = args.input_dir.resolve()
     output_directory = args.output_dir.resolve()
@@ -396,6 +472,8 @@ def main() -> int:
             args.alignment_mode,
             args.axis_frame,
             tuple(int(x) for x in args.movement_grid_shape),
+            positioning=positioning,
+            level_angle_x_sign=int(args.level_angle_x_sign),
         )
     print("\nConversion complete.")
     return 0

@@ -7,8 +7,8 @@ From the extracted `convertMissalignment` directory:
 ```bash
 git init -b main
 git add .
-git commit -m "Release convertMissAlignment 0.1.14"
-git tag -a v0.1.14 -m "convertMissAlignment 0.1.14"
+git commit -m "Release convertMissAlignment 0.1.15"
+git tag -a v0.1.15 -m "convertMissAlignment 0.1.15"
 ```
 
 ## Create a private GitHub repository with GitHub CLI
@@ -20,7 +20,7 @@ gh repo create convertMissAlignment \
   --source=. \
   --remote=origin \
   --push
-git push origin v0.1.14
+git push origin v0.1.15
 ```
 
 ## Use an existing remote repository
@@ -28,7 +28,7 @@ git push origin v0.1.14
 ```bash
 git remote add origin <repository-url>
 git push -u origin main
-git push origin v0.1.14
+git push origin v0.1.15
 ```
 
 ## Recommended initial visibility
@@ -55,5 +55,5 @@ python -m build
 The expected wheel filename is:
 
 ```text
-convertmissalignment-0.1.14-py3-none-any.whl
+convertmissalignment-0.1.15-py3-none-any.whl
 ```

@@ -142,6 +142,24 @@ class RunLayout:
     def export_dir(self) -> Path:
         return self.missalignment_run_dir / "export"
 
+    # ------------------------------------------------------------------
+    # Single user-facing IMOD publication root. The revised-alignment export is
+    # written ONCE under exported_data/imod/<condition_id>; the run-level
+    # export/imod path is only a compatibility symlink to it (see export_imod_link).
+    @property
+    def exported_data_dir(self) -> Path:
+        return self.run_dir / "exported_data"
+
+    @property
+    def exported_imod_dir(self) -> Path:
+        """The one physical revised-IMOD export directory (condition-id, not measured px)."""
+        return self.exported_data_dir / "imod" / self.dataset_id
+
+    @property
+    def export_imod_link(self) -> Path:
+        """Compatibility alias: missalignment/runs/<id>/export/imod -> exported_imod_dir."""
+        return self.export_dir / "imod"
+
     @property
     def jobs_dir(self) -> Path:
         return self.run_dir / "batches"

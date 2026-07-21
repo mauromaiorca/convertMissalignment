@@ -664,16 +664,29 @@ OUTPUT_ANGPIX="${{OUTPUT_ANGPIX:-{output_angpix}}}"
   --expected-settings-sha {settings_sha}
 ''')
         name = "export_imod_and_reconstruct"
+        export_wr_script = repo_root / "export_warp_to_imod.py"
+        revised_recon_script = layout.exported_imod_dir / "reconstruct_with_imod.sh"
         write_batch(
             "export", "export_imod_and_reconstruct.sbatch",
             _sbatch_header(name + "_" + layout.dataset_id, gpu=False, profile=profile,
                            time=cpu_time, cpus=cpu_cpus, log_dir=layout.log_dir("export"),
                            cluster=cpu_cluster)
             + _preamble(name, layout) + activation + _diagnostics(name, layout) + f'''
-"$PIPELINE_PYTHON" {shlex.quote(str(imod_recon_script))} run \\
-  --project-settings {shlex.quote(settings_path)} --dataset {shlex.quote(layout.dataset_id)} \\
-  --snapshot full --expected-executor-sha {executor_sha} \\
-  --expected-settings-sha {settings_sha}
+# 1. canonical revised-IMOD export -> exported_data/imod/{layout.dataset_id}
+#    (final .xf = DeltaH @ H_original, residual .xf, revised .tlt/.xtilt/tilt.com/newst.com,
+#     manifest, change reports, reconstruct_with_imod.sh). Needs a completed finalize.
+"$PIPELINE_PYTHON" {shlex.quote(str(export_wr_script))} revise \\
+  {shlex.quote(settings_path)} --dataset {shlex.quote(layout.dataset_id)}
+
+# 2. run the generated reconstruction script (revised newstack + tilt on the ORIGINAL raw
+#    stack via the data/ symlink; never writes under imported_data/imod).
+RECON_SCRIPT={shlex.quote(str(revised_recon_script))}
+if [[ -x "$RECON_SCRIPT" ]]; then
+  "$RECON_SCRIPT"
+else
+  echo "ERROR: revised reconstruction script missing: $RECON_SCRIPT" >&2
+  exit 4
+fi
 ''')
 
     return written

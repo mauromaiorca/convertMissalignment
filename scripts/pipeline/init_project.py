@@ -171,6 +171,69 @@ def _reconstruction_contract(input_cfg: dict, inv: DISC.SourceInventory,
     }
 
 
+def _positioning_overrides(cfg: dict | None) -> dict:
+    """Map [geometry.imod_positioning] override fields to parse_imod_positioning kwargs."""
+    if not cfg:
+        return {}
+    ov: dict = {}
+    for key in ("tilt_angle_offset_deg", "x_axis_tilt_deg",
+                "thickness_unbinned_px", "unbinned_pixel_size_A"):
+        if cfg.get(key) is not None:
+            ov[key] = cfg[key]
+    sx, sz = cfg.get("shift_x_unbinned_px"), cfg.get("shift_z_unbinned_px")
+    if sx is not None or sz is not None:
+        ov["shift_unbinned_px"] = [float(sx or 0.0), float(sz or 0.0)]
+    return ov
+
+
+def _imod_positioning_table(inv: DISC.SourceInventory, data_root: Path,
+                            cfg_geom: dict, geom_measured: dict) -> dict:
+    """Resolve the canonical [geometry.imod_positioning] table from tilt.com.
+
+    tilt.com is authoritative (tilt.log only a per-field fallback); explicit
+    [geometry.imod_positioning] fields override both. The unbinned IMOD pixel size
+    used to scale SHIFT is the measured raw-stack pixel (the raw MRC is the unbinned
+    grid), overridable in config. Always writes the table so downstream can tell a
+    resolved-but-empty positioning from a dropped one; a non-zero SHIFT with no
+    resolvable pixel fails loudly inside parse_imod_positioning.
+    """
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from geometry.imod_positioning import parse_imod_positioning
+    imod_dir = Path(inv.tilt_com).parent if inv.tilt_com else Path(data_root)
+    tilt_com = Path(inv.tilt_com) if inv.tilt_com else (imod_dir / "tilt.com")
+    tilt_log = imod_dir / "tilt.log"
+    positioning = parse_imod_positioning(
+        tilt_com if tilt_com.is_file() else None,
+        unbinned_pixel_size_A=geom_measured.get("raw_pixel_size_A"),
+        tilt_log_path=tilt_log if tilt_log.is_file() else None,
+        overrides=_positioning_overrides(cfg_geom.get("imod_positioning")),
+    )
+    return positioning.to_toml_table()
+
+
+def _export_contract(input_cfg: dict) -> dict:
+    """Resolve [export.imod_revision] with documented defaults + user overrides."""
+    user = ((input_cfg.get("export", {}) or {}).get("imod_revision", {}) or {})
+    defaults = {
+        "enabled": True,
+        "output_root": "exported_data/imod",
+        "mode": "compose_with_original",
+        "non_affine_policy": "fail",
+        "affine_fit_rms_tolerance_px": 0.10,
+        "affine_fit_max_tolerance_px": 0.25,
+        "angle_representation": "preserve_original_decomposition",
+        "global_positioning_policy": "preserve_unless_refined",
+        "shift_recovery_policy": "provenance_or_constrained_fit",
+        "thickness_policy": "preserve_original",
+        "write_residual_xf": True,
+        "run_imod_reconstruction_validation": True,
+        "overwrite_source": False,
+    }
+    merged = {**defaults, **{k: user[k] for k in user if k in defaults}}
+    return {"imod_revision": merged}
+
+
 def _measure_geometry(inv: DISC.SourceInventory):
     """Measure raw + aligned grids from real MRC headers (independent grids, 2.8)."""
     import sys
@@ -308,6 +371,12 @@ def init_project(input_cfg: dict, *, out_dir_override=None, data_dir_override=No
     geom_measured["target_volume_physical_A"] = target["physical_size_A"]
     geom_measured["target_volume_source"] = target["source"]
 
+    # 4b. AUTHORITATIVE IMOD tomogram positioning (tilt.com OFFSET/XAXISTILT/SHIFT/
+    # THICKNESS) -> [geometry.imod_positioning]. Parsed here so the resolved TOML,
+    # every conversion manifest and the cache all carry the same contract.
+    geom_measured["imod_positioning"] = _imod_positioning_table(
+        inv, data_root, cfg_geom, geom_measured)
+
     # 4. condition -> warp alignment mode (separate from refinement_mode)
     conds = base.conditions
     modes = {c: base.warp_mode(c) for c in conds}
@@ -345,6 +414,7 @@ def init_project(input_cfg: dict, *, out_dir_override=None, data_dir_override=No
                           "result_backend": base.result_backend},
         "cluster": {k: v for k, v in base.to_dict()["cluster"].items() if v is not None},
         "reconstruction": _reconstruction_contract(input_cfg, inv, geom_measured, output_dir),
+        "export": _export_contract(input_cfg),
         "provenance": {"resolved": True, "discovery": "provenance/source_inventory.json",
                        "geometry": "provenance/geometry_manifest.json",
                        "hashes": "provenance/source_hashes.json"},
