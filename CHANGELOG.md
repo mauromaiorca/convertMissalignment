@@ -2,6 +2,22 @@
 
 ## 0.1.15
 
+- Reverts the per-view `.xf` tilt-axis extraction entirely. The raw path once again writes the
+  FIXED align.com axis (`axis_input_angle` / `tilt_axis_angle_deg`, ~+84° for tomo2) to every
+  view -- the behaviour prior to per-view extraction (commit 022bc22). The per-view experiment
+  kept reversing the tilt-axis direction (a `/` slope rendered as `\`) across three rejected
+  branches: `+180` (~+84.5°), the raw IMOD-layout polar `atan2(A21,A11)` (~-95.5°), and the `A.T`
+  layout `atan2(A12,A11)` (~+95.5°). The extraction helpers (`warp_tilt_axis_angle_from_xf`,
+  `warp_axis_angle_from_xf_layout`, `warp_axis_layout_matrix`) are removed; `imod_xf_rotation_angle_deg`
+  stays as a diagnostic only. Everything else is UNCHANGED: tilt-angle sign -1, view order
+  identity, OFFSET +11.5° (baked into Angles, `LevelAngleY=0`), `LevelAngleX=-1.82°`, SHIFT
+  mapping, volume orientation, `offsets_xy_A` (`-inv(A)@d·angpix`), the aligned-frame per-view
+  transform (a separate mechanism, untouched), and the revised-IMOD export. The manifest provenance
+  records `source="fixed_aligncom_axis"` and `per_view_xf_axis_extraction_reverted=true`.
+  `WARP_AXIS_ANGLE_CONVENTION_VERSION` -> 4 (invalidates Warp XML / conversion / reconstruction /
+  export caches; any per-view axis marker is stale). The two entries below describe the reverted
+  per-view work and are retained only as history.
+
 - Corrects the reversed in-plane tilt-axis DIRECTION. The per-view Warp `TiltAxisAngle` is now
   extracted from Warp's OFFICIAL `.xf` layout -- the rotation built from `VecX=(A11,A21)`,
   `VecY=(A12,A22)` (i.e. `A.T`) fed to `EulerFromMatrix(...).Z`, which for the near-conformal

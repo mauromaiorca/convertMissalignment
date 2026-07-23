@@ -38,16 +38,14 @@ import numpy as np
 
 CenterConvention = Literal["imod", "pixel-center", "size-half"]
 
-# Bump when the Warp TiltAxisAngle / OFFSET representation changes. v3: per-view axis is
-# extracted from Warp's OFFICIAL .xf layout -- the rotation built from VecX=(A11,A21),
-# VecY=(A12,A22) (i.e. A.T), fed to EulerFromMatrix(...).Z. For the near-conformal tomo2
-# matrices this equals degrees(atan2(A12, A11)) (~+95.5), the SAME .xf convention (A.T) the
-# offset conversion already uses. v2 read the axis from the raw IMOD layout atan2(A21, A11)
-# (~-95.5) and v1 added +180 (~+84.5); both are the wrong side of 90 deg and reverse the
-# tilt-axis direction (turning `/` into `\`). OFFSET is baked into Angles with LevelAngleY = 0.
-# A marker without this version (fixed 84.1, the +180 branch, or the -95.5 IMOD-layout branch)
-# is stale.
-WARP_AXIS_ANGLE_CONVENTION_VERSION = 3
+# Bump when the Warp TiltAxisAngle / OFFSET representation changes. v4: REVERTED the per-view
+# .xf axis extraction entirely -- the raw path uses the FIXED align.com axis (axis_input_angle)
+# for every view, as it was prior to per-view extraction (commit 022bc22). The per-view
+# experiment reversed the tilt-axis direction (`/` vs `\`) across three branches: v1 added +180
+# (~+84.5), v2 read the raw IMOD layout atan2(A21,A11) (~-95.5), v3 read the A.T layout
+# atan2(A12,A11) (~+95.5) -- all rejected. OFFSET is still baked into Angles with LevelAngleY = 0.
+# A marker without this version (any per-view axis branch) is stale.
+WARP_AXIS_ANGLE_CONVENTION_VERSION = 4
 
 
 @dataclass(frozen=True)
@@ -469,54 +467,11 @@ def imod_xf_rotation_angle_deg(matrix: np.ndarray) -> float:
     """In-plane rotation of an IMOD ``.xf`` linear matrix via polar decomposition (deg).
 
     Uses the raw IMOD row layout ``A = [[A11, A12], [A21, A22]]`` -> ``atan2(A21, A11)``.
-    Scale-unbiased: the isotropic scale does not bias the angle. This is the project's
-    validated extraction (same SVD/atan2 as :func:`diagnose_matrix`)."""
+    Scale-unbiased: the isotropic scale does not bias the angle (same SVD/atan2 as
+    :func:`diagnose_matrix`). A diagnostic only -- the raw path writes the FIXED align.com axis
+    to ``TiltAxisAngles``, not any per-view ``.xf`` rotation (that experiment was reverted, see
+    :data:`WARP_AXIS_ANGLE_CONVENTION_VERSION`)."""
     return float(diagnose_matrix(matrix).rotation_deg)
-
-
-def warp_axis_layout_matrix(matrix: np.ndarray) -> np.ndarray:
-    """Warp's OFFICIAL ``.xf`` axis-extraction layout: ``A.T`` = ``[[A11, A21], [A12, A22]]``.
-
-    Warp's ``TiltSeries.ImportAlignments`` builds its rotation from the vectors
-    ``VecX = (A11, A21)`` and ``VecY = (A12, A22)`` and feeds that matrix to
-    ``EulerFromMatrix(...).Z``. Given the IMOD row matrix ``A = [[A11, A12], [A21, A22]]`` that
-    arrangement is exactly ``A.T``. Extracting the axis from THIS layout (not the raw IMOD
-    layout) is what puts the tomo2 axis on the +95.5 side of 90 deg -- and it uses the same
-    ``A.T`` convention the ``.xf`` offset conversion already uses, so axis and offset are
-    finally derived from one canonical matrix."""
-    a = np.asarray(matrix, dtype=float).reshape(2, 2)
-    return np.ascontiguousarray(a.T)
-
-
-def warp_axis_angle_from_xf_layout(matrix: np.ndarray) -> float:
-    """Warp ``TiltAxisAngle`` (deg) from the OFFICIAL ``A.T`` layout, scale-unbiased.
-
-    Polar rotation of :func:`warp_axis_layout_matrix`; for the near-conformal tomo2 matrices
-    this equals ``degrees(atan2(A12, A11))`` (e.g. +95.478 for the first real row). The simple
-    ``atan2`` form is confirmed to agree with this polar form for all rows in the regression
-    tests; the installed Warp ``EulerFromMatrix`` is the authority validated cluster-side."""
-    return imod_xf_rotation_angle_deg(warp_axis_layout_matrix(matrix))
-
-
-def warp_tilt_axis_angle_from_xf(
-    matrix: np.ndarray,
-    *,
-    angle_sign: int = -1,
-    reference_angle_deg: float = 84.1,
-) -> tuple[float, float, float]:
-    """Per-view Warp ``TiltAxisAngle`` from the source ``.xf``, in Warp's OFFICIAL layout.
-
-    The axis is ``EulerFromMatrix`` of the ``A.T`` layout (``VecX=(A11,A21)``,
-    ``VecY=(A12,A22)``), assigned straight to ``TiltAxisAngles`` -- matching Warp's official
-    ``TiltSeries.ImportAlignments``. For tomo2 this gives ~+95.5. There is NO +180 adjustment and
-    NO branch normalisation to the align.com estimate: the +180 branch (~+84.5) and the raw
-    IMOD-layout polar branch (~-95.5) are BOTH the wrong side of 90 deg and reverse the tilt-axis
-    direction (turning `/` into `\\`). ``angle_sign``/``reference_angle_deg`` are retained for
-    provenance only. Returns ``(warp_axis_deg, imod_layout_axis_deg, adjustment_deg=0)`` where the
-    second element is the raw IMOD-layout polar angle (~-95.5), recorded for provenance."""
-    warp_axis = warp_axis_angle_from_xf_layout(matrix)
-    imod_layout_axis = imod_xf_rotation_angle_deg(matrix)
-    return float(warp_axis), float(imod_layout_axis), 0.0
 
 
 def regular_grid_points(
@@ -555,9 +510,6 @@ __all__ = [
     "image_center_xy",
     "imod_xf_rotation_angle_deg",
     "inverse_physical_map",
-    "warp_axis_layout_matrix",
-    "warp_axis_angle_from_xf_layout",
-    "warp_tilt_axis_angle_from_xf",
     "inverse_points_pixels",
     "movement_at_raw_absolute_physical",
     "read_xf",

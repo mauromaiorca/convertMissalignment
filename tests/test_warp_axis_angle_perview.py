@@ -1,13 +1,11 @@
-"""Per-view Warp TiltAxisAngle from the source .xf, in Warp's OFFICIAL A.T layout.
+"""Warp TiltAxisAngle = the FIXED align.com axis (per-view .xf extraction reverted).
 
-Fixes the tilt-axis DIRECTION: the axis is EulerFromMatrix of the layout built from
-VecX=(A11,A21), VecY=(A12,A22) (i.e. A.T), == degrees(atan2(A12, A11)) ~ +95.5 for tomo2. This
-rejects the earlier wrong-side-of-90 branches: the +180 branch (~+84.5) and the raw IMOD-layout
-polar branch (~-95.5), both of which reverse the axis (a forward slope becomes a backslash). The
-A.T layout is the SAME convention offsets_xy_A already uses. Also pins: effective Warp angle ==
-sign*(tlt+OFFSET)
-(OFFSET once), identity view order, translation-only refinement preserves source rotations,
-identity IMOD->Warp->IMOD round trip. Pure numpy + a fake-warp converter; no warpylib/WarpTools.
+The per-view .xf axis experiment was reverted: it reversed the tilt-axis direction (a `/` slope
+became a `\\`) across the +84.5 / -95.5 / +95.5 branches. The raw path now writes the fixed
+align.com axis (axis_input_angle) to EVERY view, as it was prior to per-view extraction (commit
+022bc22). Pins: fixed axis with NO per-view variation, effective Warp angle == sign*(tlt+OFFSET)
+(OFFSET once, baked, LevelAngleY=0), LevelAngleX=-1.82, offsets_xy_A unchanged, identity view
+order, identity IMOD->Warp->IMOD round trip. Pure numpy + a fake-warp converter; no warpylib.
 """
 from __future__ import annotations
 
@@ -23,90 +21,16 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from imod_affine import (  # noqa: E402
-    imod_xf_rotation_angle_deg, inverse_physical_map, warp_axis_angle_from_xf_layout,
-    warp_tilt_axis_angle_from_xf, write_xf,
-)
+from imod_affine import inverse_physical_map  # noqa: E402
 
 OFFSET = -11.5
-REF = 84.1                         # align.com initial estimate (branch reference only)
+REF = 84.1                         # align.com RotationAngle (the fixed axis value)
 
 
 def _rot(deg, scale=0.99):
-    # IMOD row matrix A: A11=cos, A12=-sin, A21=sin, A22=cos.
-    # imod-layout polar = atan2(A21,A11) = +deg; Warp A.T layout = atan2(A12,A11) = -deg.
+    # IMOD row matrix A = scale * [[cos, -sin],[sin, cos]] (used to synthesise .xf rows).
     th = np.deg2rad(deg)
     return scale * np.array([[np.cos(th), -np.sin(th)], [np.sin(th), np.cos(th)]])
-
-
-def _xf_for_warp_angle(phi, scale=1.0):
-    # IMOD row A whose Warp A.T-layout angle atan2(A12,A11) == phi: A=[[c, s],[-s, c]].
-    r = np.deg2rad(phi)
-    c, s = np.cos(r), np.sin(r)
-    return scale * np.array([[c, s], [-s, c]])
-
-
-def _tomo2_xf_matrix():
-    # approx [[-0.095, +0.997],[-0.997,-0.095]]: IMOD-layout polar ~ -95.5; Warp A.T layout ~ +95.5
-    return np.array([[-0.0956, 0.9954], [-0.9954, -0.0956]])
-
-
-# First REAL tomo2 .xf row (from the task); Warp axis must be +95.478, never +84.522 or -95.478.
-FIRST_REAL_XF = np.array([[-0.0954643, 0.9954334], [-0.9954334, -0.0954643]])
-
-
-class AxisDirectionTests(unittest.TestCase):
-    def test_first_real_xf_row_is_plus_95478(self):
-        warp, imod_layout, adj = warp_tilt_axis_angle_from_xf(
-            FIRST_REAL_XF, angle_sign=-1, reference_angle_deg=REF)
-        self.assertAlmostEqual(warp, 95.478, places=2)          # REQUIRED
-        self.assertNotAlmostEqual(warp, 84.522, places=1)       # REJECT +180 branch
-        self.assertNotAlmostEqual(warp, -95.478, places=1)      # REJECT raw IMOD-layout branch
-        self.assertEqual(adj, 0.0)                              # no manual +180 adjustment
-        self.assertAlmostEqual(imod_layout, -95.478, places=2)  # provenance: raw IMOD layout
-        # simple atan2(A12,A11) form agrees exactly with the polar A.T extraction
-        atan2_form = float(np.degrees(np.arctan2(FIRST_REAL_XF[0, 1], FIRST_REAL_XF[0, 0])))
-        self.assertAlmostEqual(warp, atan2_form, places=9)
-
-    def test_warp_axis_is_At_layout_not_raw_imod(self):
-        A = _tomo2_xf_matrix()
-        warp, imod_layout, adj = warp_tilt_axis_angle_from_xf(A, angle_sign=-1, reference_angle_deg=REF)
-        self.assertEqual(adj, 0.0)
-        self.assertGreater(warp, 0.0)                           # +95.5 side of 90 deg
-        self.assertAlmostEqual(warp, -imod_layout, places=6)    # A.T angle == -(raw IMOD angle)
-        self.assertAlmostEqual(warp, warp_axis_angle_from_xf_layout(A), places=9)
-        # axis does not depend on the tilt-angle sign
-        warp_p1 = warp_tilt_axis_angle_from_xf(A, angle_sign=1, reference_angle_deg=REF)[0]
-        self.assertAlmostEqual(warp, warp_p1, places=9)
-
-    def test_tomo2_axis_range_is_plus_95(self):
-        # 41 rows spanning the measured Warp-axis range -> [+95.300, +95.723]
-        phis = np.linspace(95.300, 95.723, 41)
-        warp = [warp_tilt_axis_angle_from_xf(_xf_for_warp_angle(p))[0] for p in phis]
-        self.assertGreaterEqual(min(warp), 95.300 - 1e-3)       # REQUIRED lower bound
-        self.assertLessEqual(max(warp), 95.723 + 1e-3)          # REQUIRED upper bound
-        self.assertTrue(all(95.300 - 1e-3 <= w <= 95.723 + 1e-3 for w in warp))
-        self.assertAlmostEqual(float(np.mean(warp)), 95.495, delta=0.05)
-
-    def test_no_branch_normalization_to_84(self):
-        w = warp_tilt_axis_angle_from_xf(_tomo2_xf_matrix(), angle_sign=-1, reference_angle_deg=REF)[0]
-        self.assertGreater(w, 90.0)                             # NOT 84.x (wrong side of 90)
-        self.assertAlmostEqual(w, 95.5, delta=0.3)
-
-    def test_scale_does_not_change_axis_direction(self):
-        # A positive scale error cannot flip / into \: scaled matrix keeps the +95.5 axis.
-        base = _xf_for_warp_angle(95.478)
-        for scale in (1.0000005, 1.0028456, 0.985):
-            w = warp_tilt_axis_angle_from_xf(scale * base)[0]
-            self.assertAlmostEqual(w, 95.478, places=4)
-
-    def test_asymmetric_synthetic_series(self):
-        # each Warp axis == -(raw IMOD-layout polar); adjustment always 0
-        for imod in (-93.0, -97.5, -95.0, -96.8):
-            w, i, adj = warp_tilt_axis_angle_from_xf(_rot(imod), angle_sign=-1, reference_angle_deg=REF)
-            self.assertAlmostEqual(i, imod, delta=1e-6)         # raw IMOD-layout polar
-            self.assertAlmostEqual(w, -imod, places=6)          # Warp A.T layout == -imod
-            self.assertEqual(adj, 0.0)
 
 
 class EffectiveAngleTests(unittest.TestCase):
@@ -174,7 +98,7 @@ class ConverterEndToEndTests(unittest.TestCase):
             mrc.voxel_size = 2.2
         return ts_dir, tlt, mats
 
-    def test_no_fixed_84_1_overwrite_and_provenance(self):
+    def test_fixed_aligncom_axis_and_provenance(self):
         from geometry.imod_positioning import ImodPositioning
         mod = _load_converter()
         tmp = Path(self.enterContext(__import__("tempfile").TemporaryDirectory()))
@@ -187,41 +111,32 @@ class ConverterEndToEndTests(unittest.TestCase):
             alignment_mode="translation", axis_frame="raw", grid_shape_xy=(5, 5),
             positioning=pos, imod_to_warp_tilt_angle_sign=-1)
         axis = list(ts.tilt_axis_angles.tolist())
-        # NOT a fixed 84.1 list; NOT the +84.5 (wrong-side) branch; per-view Warp A.T layout ~+95.5
-        self.assertFalse(all(abs(a - 84.1) < 1e-6 for a in axis))
-        self.assertFalse(any(83.0 <= a <= 86.0 for a in axis))   # reject the +180 (~+84.5) branch
-        self.assertTrue(all(94.8 <= a <= 96.0 for a in axis))    # Warp A.T layout, +95.5 side of 90
-        self.assertGreater(float(np.ptp(axis)), 1e-3)            # per-view variation present
-        for a, M in zip(axis, mats):
-            self.assertAlmostEqual(a, warp_axis_angle_from_xf_layout(M), places=3)  # A.T layout
-            self.assertAlmostEqual(a, -imod_xf_rotation_angle_deg(M), places=3)     # == -(raw polar)
+        # FIXED align.com axis: every view == 84.1, NO per-view variation, no -95.5/+95.5 inversion.
+        self.assertTrue(all(abs(a - 84.1) < 1e-5 for a in axis))
+        self.assertEqual(float(np.ptp(axis)), 0.0)               # no per-view variation
+        self.assertFalse(any(abs(a) > 90.0 for a in axis))       # NOT the ~95 (inverted) branches
         # OFFSET baked into Angles = sign*(tlt+OFFSET); LevelAngleY = 0 (applied once)
         self.assertTrue(np.allclose(ts.angles.tolist(), [-(t - 11.5) for t in tlt], atol=1e-4))
         self.assertAlmostEqual(float(ts.level_angle_y), 0.0, places=6)
-        # offsets_xy_A are the inverse_physical_map values -- UNCHANGED by the axis convention
+        # offsets_xy_A are the inverse_physical_map values -- UNCHANGED (independent of the axis)
         man = json.loads((out / "TS_demo.conversion.json").read_text())
         shifts = [(2.0 * i, -1.5 * i) for i in range(len(mats))]
         for i, (M, sh) in enumerate(zip(mats, shifts)):
             _, exp_off = inverse_physical_map(M, np.array(sh), 2.2, 2.2)
             self.assertTrue(np.allclose(man["offsets_xy_A"][i], exp_off, atol=1e-4),
                             f"offset {i}: {man['offsets_xy_A'][i]} != {exp_off.tolist()}")
-        # manifest provenance
+        # manifest provenance: fixed align.com axis, per-view extraction reverted
         prov = man["tilt_axis_angle_provenance"]
         self.assertEqual(prov["initial_axis_estimate_deg"], 84.1)
         self.assertEqual(prov["imod_to_warp_tilt_angle_sign"], -1)
-        self.assertTrue(all(adj == 0.0 for adj in prov["axis_direction_adjustment_deg"]))
-        self.assertEqual(len(prov["source_axis_angle_deg"]), 6)
-        self.assertEqual(prov["warp_axis_angle_convention_version"], 3)
-        self.assertIn("A_transpose", prov["axis_extraction_layout"])
+        self.assertEqual(prov["source"], "fixed_aligncom_axis")
+        self.assertTrue(prov["per_view_xf_axis_extraction_reverted"])
+        self.assertTrue(all(abs(a - 84.1) < 1e-5 for a in prov["final_warp_axis_angle_deg"]))
+        self.assertEqual(prov["warp_axis_angle_convention_version"], 4)
         self.assertIn("tilt_axis_angles_hash", prov)
+        self.assertNotIn("axis_direction_adjustment_deg", prov)   # per-view machinery gone
         self.assertEqual(man["warp_positioning_applied"]["offset_representation"], "baked_into_angles")
-        # view order identity, source rotations preserved (not discarded for translation mode)
-        self.assertEqual(man["tilt_view_order"]["warp_to_source"], list(range(6)))
-        for i, M in enumerate(mats):
-            self.assertAlmostEqual(prov["source_axis_angle_deg"][i],   # provenance = raw IMOD polar
-                                   imod_xf_rotation_angle_deg(M), places=4)
-            self.assertAlmostEqual(prov["final_warp_axis_angle_deg"][i],
-                                   warp_axis_angle_from_xf_layout(M), places=4)
+        self.assertEqual(man["tilt_view_order"]["warp_to_source"], list(range(6)))  # identity order
 
     def test_offset_double_application_raises(self):
         # If Angles were -(tlt+OFFSET) AND LevelAngleY=+11.5, the in-converter assertion fires.
