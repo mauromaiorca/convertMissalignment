@@ -75,12 +75,15 @@ class ConverterPositioningTests(unittest.TestCase):
         self.assertAlmostEqual(ts.level_angle_x, -1.82, places=6)
         self.assertEqual(applied["level_angle_x_sign"], -1)
         self.assertFalse(applied["level_angle_x_sign_validated"])   # only the cluster script validates
-        # SHIFT -> apply_tomogram_shift_3d([sx_A, 0, sz_A]) (float32 storage tolerance)
+        # SHIFT -> apply_tomogram_shift_3d via the signed IMOD-MRC->Warp frame transform.
+        # pixel 2.0, shift_z=-8.1, sign -1: IMOD-MRC [0,-16.2,0] -> Warp [0,0,+16.2].
         self.assertEqual(len(ts.shift_calls), 1)
-        for got, exp in zip(ts.shift_calls[0], [0.0, 0.0, -16.2]):
+        for got, exp in zip(ts.shift_calls[0], [0.0, 0.0, 16.2]):
             self.assertAlmostEqual(got, exp, places=3)
         self.assertEqual(applied["shift_representation"], "apply_tomogram_shift_3d")
-        self.assertAlmostEqual(applied["warp_object_shift_A"][2], -16.2, places=6)
+        self.assertAlmostEqual(applied["warp_object_shift_A"][2], 16.2, places=3)
+        self.assertEqual(applied["imod_shift_vector_A"][1], -16.2)   # native MRC: SHIFT Z in comp 1
+        self.assertEqual(applied["orientation_determinant"], 1)
         self.assertIn("positioning_hash", applied)
 
     def test_positive_sign_flips_level_angle_x(self):

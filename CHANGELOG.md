@@ -2,6 +2,20 @@
 
 ## 0.1.15
 
+- Corrects the IMOD reconstruction SHIFT into the Warp volume frame. The tilt-angle sign was
+  changed to -1 without applying the corresponding signed 3-D frame transform to SHIFT. SHIFT
+  is now built in native IMOD-MRC axis order `[sx_A, sz_A, 0]` (SHIFT Z is thickness -> MRC Y)
+  and transformed ONCE with the signed `IMOD_MRC_TO_WARP` orientation (`[[1,0,0],[0,0,1],[0,-1,0]]`,
+  det +1, hand-preserving for sign -1): `SHIFT Z -8.1 @ 2.2 A -> Warp [0,0,+17.82] A` (was
+  `[0,0,-17.82]`). The shape permutation `(0,2,1)` is unchanged (it carries no signs); the signed
+  matrix is added for coordinates/vectors. SHIFT stays the single global `apply_tomogram_shift_3d`
+  representation (never added to the `.xf`-derived `TiltAxisOffsetX/Y`). The orientation matrix +
+  determinant + handedness + both shift vectors are recorded in the conversion and export
+  manifests; `POSITIONING_CONTRACT_VERSION` bumped to 2 (invalidates conversion/reconstruction
+  caches). Adds the exact inverse `warp_shift_to_imod_reconstruction` (SHIFT Z from MRC component
+  1). `angle_sign = +1` uses the corresponding det -1 policy, not the -1 matrix. The `.xf` import,
+  view order and tilt-angle sign are unchanged.
+
 - Corrects the IMOD->Warp tilt-angle convention. One canonical
   `IMOD_TO_WARP_TILT_ANGLE_SIGN = -1` (allowed -1/+1) is applied EXACTLY ONCE to both the
   per-view angles (`warp = sign * imod_raw`) and OFFSET (`LevelAngleY = sign * OFFSET`), so

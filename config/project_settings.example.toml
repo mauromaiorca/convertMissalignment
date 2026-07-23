@@ -96,7 +96,7 @@ normalize = false              # keep --dont_normalize (test normalisation separ
 # override here to force a value. tilt_axis_angle_deg (detector) is a DIFFERENT quantity from
 # tilt_angle_offset_deg and x_axis_tilt_deg. SHIFT is scaled by the UNBINNED IMOD pixel size.
 [geometry.imod_positioning]
-contract_version = 1
+contract_version = 2
 tilt_angle_offset_deg = -11.5      # tilt.com OFFSET   -> Warp LevelAngleY (applied once)
 x_axis_tilt_deg = 1.82             # tilt.com XAXISTILT -> Warp LevelAngleX (sign from cluster oracle)
 shift_x_unbinned_px = 0.0          # tilt.com SHIFT[0] -> Warp object-space X (Angstrom)

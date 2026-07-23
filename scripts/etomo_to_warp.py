@@ -96,7 +96,15 @@ def apply_imod_positioning(ts, positioning, *, level_angle_x_sign: int = -1,
     if positioning.has_nonzero_shift:
         if positioning.unbinned_pixel_size_A is None:
             raise ValueError("non-zero tilt.com SHIFT requires the unbinned IMOD pixel size")
-        shift_A = [float(positioning.shift_x_A), 0.0, float(positioning.shift_z_A)]  # (X, Y, Z)
+        # ONE canonical SHIFT representation: the signed IMOD-MRC -> Warp frame transform.
+        # Built in native IMOD-MRC order [sx_A, sz_A, 0] and transformed once; NOT [sx, 0, sz].
+        # The .xf-derived per-view TiltAxisOffsetX/Y are a SEPARATE mechanism and are not
+        # touched here (no projected SHIFT is added to them).
+        from geometry.imod_positioning import imod_reconstruction_shift_to_warp
+        shift_map = imod_reconstruction_shift_to_warp(
+            positioning.shift_x_unbinned_px, positioning.shift_z_unbinned_px,
+            positioning.unbinned_pixel_size_A, tilt_angle_sign=tilt_angle_sign)
+        warp_shift_A = shift_map["warp_object_shift_A"]
         method = getattr(ts, "apply_tomogram_shift_3d", None)
         if not callable(method):
             raise ValueError(
@@ -104,9 +112,12 @@ def apply_imod_positioning(ts, positioning, *, level_angle_x_sign: int = -1,
                 "apply_tomogram_shift_3d(); it cannot represent the reconstruction shift. "
                 "Use a warpylib version that supports it, or represent the shift as constant "
                 "GridVolumeWarp values.")
-        method(torch.tensor(shift_A, dtype=torch.float32))
+        method(torch.tensor(warp_shift_A, dtype=torch.float32))
         applied["shift_representation"] = "apply_tomogram_shift_3d"
-        applied["warp_object_shift_A"] = shift_A
+        applied["warp_object_shift_A"] = warp_shift_A
+        applied["imod_shift_vector_A"] = shift_map["imod_shift_vector_A"]
+        applied["orientation_matrix_imod_mrc_to_warp"] = shift_map["orientation_matrix_imod_mrc_to_warp"]
+        applied["orientation_determinant"] = shift_map["orientation_determinant"]
     return applied
 
 
@@ -219,9 +230,15 @@ def process_tilt_series(
             ),
         }
 
+    # IMOD -> Warp tilt-angle sign, validated once and used for BOTH the signed angles and the
+    # signed volume-frame orientation (SHIFT). The shape permutation is unaffected.
+    from geometry.imod_positioning import validate_tilt_angle_sign
+    tilt_angle_sign = validate_tilt_angle_sign(imod_to_warp_tilt_angle_sign)
+
     volume_frame = volume_frame_manifest(
         source_volume_shape_imod_mrc_xyz,
         quarter_turn_k=quarter_turn_k,
+        tilt_angle_sign=tilt_angle_sign,
     )
     warp_volume_shape_xyz = tuple(volume_frame["current_shape_warp_xyz"])
 
@@ -245,11 +262,9 @@ def process_tilt_series(
     stack_path = stack_dir / f"{folder_name}.st"
     xml_path = output_directory / f"{folder_name}.xml"
 
-    # IMOD -> Warp tilt-angle sign, applied EXACTLY ONCE to the raw angles (view order is
-    # preserved: warp row i == source stack section i). OFFSET receives the same sign below
-    # (LevelAngleY); the raw .tlt is never negated on disk and OFFSET is not baked in here.
-    from geometry.imod_positioning import validate_tilt_angle_sign
-    tilt_angle_sign = validate_tilt_angle_sign(imod_to_warp_tilt_angle_sign)
+    # Angles receive the SAME validated sign, applied EXACTLY ONCE (view order preserved:
+    # warp row i == source stack section i). OFFSET gets it below (LevelAngleY); the raw .tlt
+    # is never negated on disk and OFFSET is not baked in here.
     warp_angles = [tilt_angle_sign * float(a) for a in tilt_angles]
 
     ts = TiltSeries(path=str(xml_path), n_tilts=n_tilts)
@@ -359,6 +374,11 @@ def process_tilt_series(
     if positioning is not None:
         manifest["imod_positioning"] = positioning.to_manifest()
         manifest["warp_positioning_applied"] = warp_positioning_applied
+        # Extend the volume-frame entry with the SHIFT vectors in both frames (the orientation
+        # matrix/determinant/handedness/shape_permutation are already in volume_frame).
+        if warp_positioning_applied and "imod_shift_vector_A" in warp_positioning_applied:
+            manifest["volume_frame"]["imod_shift_vector_A"] = warp_positioning_applied["imod_shift_vector_A"]
+            manifest["volume_frame"]["warp_shift_vector_A"] = warp_positioning_applied["warp_object_shift_A"]
 
     if alignment_mode == "identity":
         ts.tilt_axis_offset_x = torch.zeros(n_tilts, dtype=torch.float32)

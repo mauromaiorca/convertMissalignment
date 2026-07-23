@@ -605,6 +605,7 @@ def write_revision_export(
         },
         "tilt_view_order": (revision.provenance or {}).get("tilt_view_order"),
         "tilt_angle_convention": (revision.provenance or {}).get("tilt_angle_convention"),
+        "volume_frame_orientation": (revision.provenance or {}).get("volume_frame_orientation"),
         "final_xf": file_hashes.get("final_xf"),
         "residual_xf": file_hashes.get("residual_xf"),
         "tlt": {**(file_hashes.get("tlt") or {}), "unchanged": bool(tlt_unchanged)},

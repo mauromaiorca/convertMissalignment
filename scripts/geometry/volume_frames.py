@@ -20,11 +20,40 @@ from __future__ import annotations
 
 from typing import Sequence
 
+import numpy as np
+
 IMOD_MRC_FRAME = "imod_reconstruction_mrc_xyz__y_is_thickness"
 WARP_FRAME = "warp_tomogram_xyz__z_is_thickness"
 DETECTOR_FRAME = "warp_projection_detector_xy"
 VOLUME_FRAME_CONTRACT_VERSION = 2
+# Shape (extent) permutation ONLY: reorders sizes, carries no axis signs. Unchanged.
 BASE_AXIS_PERMUTATION = (0, 2, 1)
+
+# Signed orientation for COORDINATES and VECTORS (e.g. the reconstruction SHIFT). Unlike the
+# shape permutation it carries the axis signs. For the production IMOD-compatible tilt-angle
+# sign -1 it is HAND-PRESERVING (det +1):
+#     Warp X =  IMOD-MRC X ; Warp Y =  IMOD-MRC Z ; Warp Z = -IMOD-MRC Y
+# The +1 (source-sign / --dont_invert) convention flips the thickness->Warp-Z sign, giving the
+# corresponding det -1 orientation (handedness flipped). Never reuse the -1 matrix for +1.
+IMOD_MRC_TO_WARP = np.array([[1.0, 0.0, 0.0],
+                             [0.0, 0.0, 1.0],
+                             [0.0, -1.0, 0.0]], dtype=np.float64)
+
+
+def imod_mrc_to_warp_orientation(tilt_angle_sign: int) -> np.ndarray:
+    """Signed IMOD-MRC -> Warp orientation matrix for coordinates/vectors (not shapes)."""
+    s = int(tilt_angle_sign)
+    if s not in (-1, 1):
+        raise ValueError(f"tilt_angle_sign must be -1 or +1, got {tilt_angle_sign!r}")
+    z_sign = -1.0 if s == -1 else 1.0            # thickness -> Warp Z sign follows the angle sign
+    return np.array([[1.0, 0.0, 0.0],
+                     [0.0, 0.0, 1.0],
+                     [0.0, z_sign, 0.0]], dtype=np.float64)
+
+
+def warp_to_imod_mrc_orientation(tilt_angle_sign: int) -> np.ndarray:
+    """Inverse orientation (its transpose; an orthonormal signed permutation)."""
+    return imod_mrc_to_warp_orientation(tilt_angle_sign).T
 
 
 def _shape3(shape: Sequence[int], *, label: str) -> tuple[int, int, int]:
@@ -93,16 +122,24 @@ def volume_frame_manifest(
     shape_imod_mrc_xyz: Sequence[int],
     *,
     quarter_turn_k: int,
+    tilt_angle_sign: int = -1,
 ) -> dict:
     source = _shape3(shape_imod_mrc_xyz, label="IMOD MRC volume shape")
     base = imod_mrc_shape_to_warp_xyz(source)
     k = int(quarter_turn_k) % 4
+    orientation = imod_mrc_to_warp_orientation(tilt_angle_sign)
+    determinant = int(round(float(np.linalg.det(orientation))))
     return {
         "contract_version": VOLUME_FRAME_CONTRACT_VERSION,
         "source_frame": IMOD_MRC_FRAME,
         "target_frame": WARP_FRAME,
         "source_shape_imod_mrc_xyz": list(source),
         "base_axis_permutation_imod_mrc_to_warp": list(BASE_AXIS_PERMUTATION),
+        "shape_permutation": list(BASE_AXIS_PERMUTATION),
+        "orientation_matrix_imod_mrc_to_warp": orientation.tolist(),
+        "orientation_determinant": determinant,
+        "handedness_effect": "preserved" if determinant == 1 else "flipped",
+        "tilt_angle_sign": int(tilt_angle_sign),
         "base_shape_warp_xyz": list(base),
         "projection_quarter_turn_k": k,
         "projection_quarter_turn_scope": "detector_frame_only",

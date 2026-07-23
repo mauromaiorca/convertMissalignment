@@ -87,6 +87,21 @@ def _tlt_row_count(path: Path) -> int:
     return sum(1 for ln in Path(path).read_text().splitlines() if ln.strip())
 
 
+def _orientation_manifest(tilt_angle_sign: int) -> dict:
+    """The signed IMOD-MRC -> Warp orientation recorded in the export manifest."""
+    import numpy as np
+    from geometry.volume_frames import BASE_AXIS_PERMUTATION, imod_mrc_to_warp_orientation
+    m = imod_mrc_to_warp_orientation(tilt_angle_sign)
+    det = int(round(float(np.linalg.det(m))))
+    return {
+        "orientation_matrix_imod_mrc_to_warp": m.tolist(),
+        "orientation_determinant": det,
+        "handedness_effect": "preserved" if det == 1 else "flipped",
+        "shape_permutation": list(BASE_AXIS_PERMUTATION),
+        "tilt_angle_sign": int(tilt_angle_sign),
+    }
+
+
 def _read_conversion_contract(sources: "RevisionSources") -> dict:
     """The recorded conversion contract (tilt-angle sign + view order), read — not assumed.
 
@@ -225,6 +240,7 @@ def export_revised_imod(sources: RevisionSources, *, config: dict, layout: RunLa
             "imod_to_warp_tilt_angle_sign": tilt_angle_sign,
             "tilt_view_order": view_order,
             "tilt_angle_convention": tilt_angle_convention_manifest(tilt_angle_sign),
+            "volume_frame_orientation": _orientation_manifest(tilt_angle_sign),
         })
 
     paths = ExportPaths.resolve(layout.exported_imod_dir, layout.export_imod_link)

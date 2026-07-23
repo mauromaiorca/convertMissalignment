@@ -43,7 +43,10 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 # Bump when the parsed/resolved positioning contract changes shape or semantics.
-POSITIONING_CONTRACT_VERSION = 1
+# v2: IMOD SHIFT is transformed into the Warp volume frame with the signed IMOD_MRC_TO_WARP
+# orientation matrix (was the unsigned [sx, 0, sz] construction); this invalidates all
+# conversion/reconstruction caches so sign-mismatched SHIFTs are regenerated.
+POSITIONING_CONTRACT_VERSION = 2
 
 # The four tilt.com fields this module owns.
 POSITIONING_FIELDS = ("THICKNESS", "OFFSET", "XAXISTILT", "SHIFT")
@@ -453,34 +456,70 @@ def imod_xaxis_tilt_to_warp(x_axis_tilt_deg: float, *, sign: int) -> dict:
     }
 
 
-# Volume-frame contract (mirrors scripts/geometry/volume_frames.py, contract v2):
-#   Warp specimen XYZ = IMOD-MRC (X, Z, Y): thickness IMOD Y -> Warp Z,
-#   detector-vertical IMOD Z -> Warp Y. The IMOD *reconstruction* SHIFT is given in
-#   reconstruction (X, Z=thickness) directions.
+# Volume-frame contract (uses scripts/geometry/volume_frames.py). The IMOD reconstruction
+# SHIFT (X, Z=thickness) is a 3-D VECTOR: build it in NATIVE IMOD-MRC axis order
+# [X, Y=thickness, Z=detector] as [sx_A, sz_A, 0] (SHIFT Z is thickness -> IMOD-MRC Y), then
+# transform ONCE with the signed IMOD_MRC_TO_WARP orientation. This is NOT [sx, 0, sz].
 def imod_reconstruction_shift_to_warp(
     shift_x_unbinned_px: float,
     shift_z_unbinned_px: float,
     unbinned_pixel_size_A: float,
+    *,
+    tilt_angle_sign: int = IMOD_TO_WARP_TILT_ANGLE_SIGN,
 ) -> dict:
-    """SHIFT -> Warp object-space translation (Angstrom).
+    """SHIFT -> Warp object-space translation (Angstrom), via the signed frame matrix.
 
-    source frame : IMOD reconstruction (X, Z=thickness), unbinned pixels
-    dest frame   : Warp specimen XYZ (X, Y, Z=thickness)
-    mapping      : reconstruction X -> Warp X; reconstruction Z(thickness) -> Warp Z;
-                   Warp Y (detector-vertical / along tilt axis) shift is zero.
-    convention   : a 3-D object translation; projects to detector as
-                   du(theta) = sx*cos(theta) + sz*sin(theta) (angle-dependent).
-    units        : angstrom (unbinned pixels * unbinned IMOD pixel size)
+    IMOD-MRC vector = [sx_A, sz_A, 0] (X, Y=thickness, Z=detector); Warp = M @ that, with
+    M = imod_mrc_to_warp_orientation(tilt_angle_sign). For sx=0, sz=-8.1, pixel=2.2, sign=-1:
+    IMOD-MRC = [0, -17.82, 0] -> Warp = [0, 0, +17.82] Angstrom (was [0, 0, -17.82]).
     """
     if unbinned_pixel_size_A is None:
         raise ValueError("SHIFT physical mapping requires the unbinned IMOD pixel size")
-    sx_A = float(shift_x_unbinned_px) * float(unbinned_pixel_size_A)
-    sz_A = float(shift_z_unbinned_px) * float(unbinned_pixel_size_A)
+    import numpy as np
+    from geometry.volume_frames import imod_mrc_to_warp_orientation
+
+    pixel = float(unbinned_pixel_size_A)
+    shift_imod_mrc_A = np.array(
+        [float(shift_x_unbinned_px) * pixel, float(shift_z_unbinned_px) * pixel, 0.0],
+        dtype=np.float64)
+    orientation = imod_mrc_to_warp_orientation(tilt_angle_sign)
+    shift_warp_A = orientation @ shift_imod_mrc_A
     return {
-        "warp_object_shift_A": [sx_A, 0.0, sz_A],   # (X, Y, Z=thickness)
+        "warp_object_shift_A": [float(v) for v in shift_warp_A],   # (X, Y, Z=thickness)
+        "imod_shift_vector_A": [float(v) for v in shift_imod_mrc_A],
+        "orientation_matrix_imod_mrc_to_warp": orientation.tolist(),
+        "orientation_determinant": int(round(float(np.linalg.det(orientation)))),
         "reconstruction_shift_unbinned_px": [float(shift_x_unbinned_px), float(shift_z_unbinned_px)],
-        "unbinned_pixel_size_A": float(unbinned_pixel_size_A),
-        "warp_representation": "object_space_translation_xyz_A",
+        "unbinned_pixel_size_A": pixel,
+        "tilt_angle_sign": int(tilt_angle_sign),
+        "warp_representation": "object_space_translation_xyz_A_signed_frame",
+    }
+
+
+def warp_shift_to_imod_reconstruction(
+    warp_object_shift_A,
+    unbinned_pixel_size_A: float,
+    *,
+    tilt_angle_sign: int = IMOD_TO_WARP_TILT_ANGLE_SIGN,
+) -> dict:
+    """Exact inverse of :func:`imod_reconstruction_shift_to_warp`.
+
+    IMOD-MRC vector = WARP_TO_IMOD_MRC @ warp; recover SHIFT X from component 0 and SHIFT Z
+    from component 1 (NOT component 2), divided by the unbinned pixel size.
+    """
+    if unbinned_pixel_size_A is None:
+        raise ValueError("SHIFT inverse mapping requires the unbinned IMOD pixel size")
+    import numpy as np
+    from geometry.volume_frames import warp_to_imod_mrc_orientation
+
+    pixel = float(unbinned_pixel_size_A)
+    warp = np.asarray(warp_object_shift_A, dtype=np.float64).reshape(3)
+    shift_imod_mrc_A = warp_to_imod_mrc_orientation(tilt_angle_sign) @ warp
+    return {
+        "shift_x_unbinned_px": float(shift_imod_mrc_A[0] / pixel),
+        "shift_z_unbinned_px": float(shift_imod_mrc_A[1] / pixel),   # component 1, not 2
+        "imod_shift_vector_A": [float(v) for v in shift_imod_mrc_A],
+        "tilt_angle_sign": int(tilt_angle_sign),
     }
 
 

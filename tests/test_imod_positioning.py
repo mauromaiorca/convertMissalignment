@@ -131,8 +131,11 @@ class ConversionFunctionTests(unittest.TestCase):
         self.assertEqual(out["raw_tilt_angles_deg"], raw)   # raw kept separately
 
     def test_shift_uses_unbinned_pixel_and_maps_to_object_xyz(self):
-        out = imod_reconstruction_shift_to_warp(0.0, -8.1, 2.0)
-        self.assertEqual(out["warp_object_shift_A"], [0.0, 0.0, -16.2])   # (X, Y, Z=thickness)
+        # signed IMOD-MRC->Warp frame transform (sign -1): IMOD-MRC [0,-16.2,0] -> Warp [0,0,+16.2]
+        out = imod_reconstruction_shift_to_warp(0.0, -8.1, 2.0, tilt_angle_sign=-1)
+        self.assertEqual(out["imod_shift_vector_A"], [0.0, -16.2, 0.0])
+        self.assertEqual(out["warp_object_shift_A"], [0.0, 0.0, 16.2])    # (X, Y, Z=thickness)
+        self.assertEqual(out["orientation_determinant"], 1)
 
     def test_xaxis_sign_is_explicit(self):
         self.assertEqual(imod_xaxis_tilt_to_warp(1.82, sign=1)["warp_level_angle_x_deg"], 1.82)
@@ -220,7 +223,7 @@ class HashTests(unittest.TestCase):
         self.assertEqual(m["shift_A"], [0.0, -16.2])
         self.assertEqual(m["unbinned_pixel_size_A"], 2.0)
         self.assertIn("positioning_hash", m)
-        self.assertEqual(m["contract_version"], 1)
+        self.assertEqual(m["contract_version"], 2)
 
 
 if __name__ == "__main__":

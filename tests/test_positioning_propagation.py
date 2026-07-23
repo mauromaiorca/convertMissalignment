@@ -168,7 +168,7 @@ class TomlSerializationTests(unittest.TestCase):
             IP.write_toml(out, resolved)
             parsed = tomllib.loads(out.read_text())
         pos = parsed["geometry"]["imod_positioning"]
-        self.assertEqual(pos["contract_version"], 1)
+        self.assertEqual(pos["contract_version"], 2)
         self.assertEqual(pos["tilt_angle_offset_deg"], -11.5)
         self.assertEqual(pos["shift_z_unbinned_px"], -8.1)
         self.assertEqual(pos["present_fields"], ["THICKNESS", "OFFSET", "XAXISTILT", "SHIFT"])
