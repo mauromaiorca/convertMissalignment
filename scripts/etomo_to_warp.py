@@ -293,11 +293,13 @@ def process_tilt_series(
     ts = TiltSeries(path=str(xml_path), n_tilts=n_tilts)
     ts.angles = torch.tensor(warp_angles, dtype=torch.float32)
 
-    # Per-view Warp TiltAxisAngle = EACH source .xf polar rotation DIRECTLY (never a fixed
-    # align.com value; matches Warp's official importer). No 180 deg adjustment: the .xf branch
-    # (~-95.5) is already the directed axis for the negated tilt angles. axis_input_angle
-    # (align.com, e.g. 84.1) is provenance/fallback only. The aligned-frame condition keeps its
-    # own per-view mapping (a separate mechanism, not the fixed-value error).
+    # Per-view Warp TiltAxisAngle = EACH source .xf axis in Warp's OFFICIAL layout: the rotation
+    # built from VecX=(A11,A21), VecY=(A12,A22) (i.e. A.T), fed to EulerFromMatrix(...).Z (~+95.5
+    # for tomo2). Never a fixed align.com value. No 180 deg adjustment and no branch normalisation
+    # to axis_input_angle: the +180 branch (~+84.5) and the raw IMOD-layout polar branch (~-95.5)
+    # are both the wrong side of 90 deg and reverse the tilt-axis direction. This A.T layout is the
+    # SAME convention the offsets_xy_A conversion uses. axis_input_angle (align.com, e.g. 84.1) is
+    # provenance/fallback only. The aligned-frame condition keeps its own per-view mapping.
     source_axis_angles_deg: list[float] = []
     axis_direction_adjustments_deg: list[float] = []
     if axis_frame == "aligned":
@@ -324,9 +326,9 @@ def process_tilt_series(
         warp_positioning_applied = apply_imod_positioning(
             ts, positioning, level_angle_x_sign=level_angle_x_sign,
             imod_to_warp_tilt_angle_sign=tilt_angle_sign)
-        # OFFSET applied EXACTLY ONCE: effective Warp angle == sign * (tlt + OFFSET). Angles
-        # hold sign*tlt (OFFSET not baked in); LevelAngleY holds sign*OFFSET. Guard against a
-        # future double application.
+        # OFFSET applied EXACTLY ONCE: effective Warp angle == sign * (tlt + OFFSET). Angles hold
+        # sign*(tlt+OFFSET) (OFFSET baked in, per the convention) and LevelAngleY = 0, so the
+        # effective OFFSET is +11.5 deg in the LevelAngleY sense. Guard against double application.
         _offset = float(positioning.tilt_angle_offset_deg)
         _level_y = float(warp_positioning_applied["warp_level_angle_y_deg"])
         for _i, _tlt in enumerate(tilt_angles):
@@ -365,13 +367,16 @@ def process_tilt_series(
         "warp_tilt_axis_angles_deg": axis_angles,
         "tilt_axis_angle_provenance": {
             "warp_axis_angle_convention_version": WARP_AXIS_ANGLE_CONVENTION_VERSION,
-            "source": ("per_view_xf_polar_rotation" if axis_frame != "aligned"
+            "source": ("per_view_xf_warp_layout_euler" if axis_frame != "aligned"
                        else "per_view_raw_to_aligned_axis_transform"),
+            "axis_extraction_layout": (
+                "warp_official_A_transpose__VecX=(A11,A21)_VecY=(A12,A22)__EulerFromMatrix.Z"
+                if axis_frame != "aligned" else "raw_to_aligned_axis_transform"),
             "initial_axis_estimate_deg": float(axis_input_angle),   # align.com; reference/fallback only
             "imod_to_warp_tilt_angle_sign": int(tilt_angle_sign),
-            "source_axis_angle_deg": source_axis_angles_deg,        # per-view IMOD .xf rotation
+            "source_axis_angle_deg": source_axis_angles_deg,        # raw IMOD-layout polar (~-95.5)
             "axis_direction_adjustment_deg": axis_direction_adjustments_deg,  # 0 (no reversal)
-            "final_warp_axis_angle_deg": [float(a) for a in axis_angles],     # == source .xf rotation
+            "final_warp_axis_angle_deg": [float(a) for a in axis_angles],  # Warp A.T layout (~+95.5)
             "tilt_axis_angles_hash": hashlib.sha256(
                 json.dumps([round(float(a), 6) for a in axis_angles]).encode()).hexdigest(),
         },

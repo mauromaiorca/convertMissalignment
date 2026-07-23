@@ -2,6 +2,25 @@
 
 ## 0.1.15
 
+- Corrects the reversed in-plane tilt-axis DIRECTION. The per-view Warp `TiltAxisAngle` is now
+  extracted from Warp's OFFICIAL `.xf` layout -- the rotation built from `VecX=(A11,A21)`,
+  `VecY=(A12,A22)` (i.e. `A.T`) fed to `EulerFromMatrix(...).Z`, which for the near-conformal
+  tomo2 matrices equals `degrees(atan2(A12, A11))` (~**+95.5**; first real row +95.478°). The two
+  earlier branches were both on the wrong side of 90° and reversed the axis (a `/` slope rendered
+  as `\`): the `+180` branch (~+84.5°) and the raw IMOD-layout polar branch `atan2(A21,A11)`
+  (~-95.5°). No `+180` adjustment and no branch normalisation toward the align.com 84.1° estimate;
+  the exact Euler branch is stored (`axis_extraction_layout` records the `A.T`/VecX/VecY
+  arrangement). This is the SAME `A.T` convention `offsets_xy_A` already uses, so axis and offset
+  finally derive from one canonical matrix -- `offsets_xy_A` (`-inv(A)@d·angpix`) are unchanged.
+  The polar-of-`A.T` extraction is scale-unbiased (a positive `.xf` scale error cannot flip `/`
+  into `\`); `.xf` isotropic scale stays a separate concern. Preserved: tilt-angle sign -1, view
+  order identity, OFFSET +11.5° (baked into Angles, `LevelAngleY=0`), `LevelAngleX=-1.82°`, SHIFT
+  mapping, volume orientation, `tomo2.tlt`/`tomo2.xf` sources; no global X/Y flip, no stack
+  reversal. `WARP_AXIS_ANGLE_CONVENTION_VERSION` -> 3 (invalidates Warp XML / conversion /
+  reconstruction / export caches; a +84.5 or -95.5 axis marker is stale). The installed Warp
+  `Matrix3`/`EulerFromMatrix` remains the cluster-side authority; the local `atan2` form is
+  confirmed to agree exactly for all rows.
+
 - Removes a double reversal of the directed tilt axis. `TiltAxisAngles` are now the source
   `.xf` polar rotation DIRECTLY (~-95.5° for tomo2), matching Warp's official
   `TiltSeries.ImportAlignments` (`EulerFromMatrix` assigned straight); the previous `+180°`
