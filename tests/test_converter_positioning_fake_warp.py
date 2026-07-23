@@ -66,9 +66,11 @@ class ConverterPositioningTests(unittest.TestCase):
         ts = FakeTiltSeriesWithShift()
         raw_before = ts.angles.clone()
         applied = self.mod.apply_imod_positioning(ts, self.pos, level_angle_x_sign=-1)
-        # OFFSET -> level_angle_y = sign * OFFSET (default sign -1), applied exactly once.
-        # apply_imod_positioning does not touch ts.angles (process_tilt_series signs those).
-        self.assertEqual(ts.level_angle_y, 11.5)
+        # OFFSET is baked into ts.angles by process_tilt_series -> here LevelAngleY = 0 (once).
+        # apply_imod_positioning does not touch ts.angles.
+        self.assertEqual(ts.level_angle_y, 0.0)
+        self.assertEqual(applied["offset_representation"], "baked_into_angles")
+        self.assertEqual(applied["imod_offset_deg"], -11.5)
         self.assertEqual(applied["imod_to_warp_tilt_angle_sign"], -1)
         self.assertTrue(torch.equal(ts.angles, raw_before))
         # XAXISTILT -> level_angle_x = sign * 1.82

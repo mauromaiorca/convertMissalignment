@@ -2,6 +2,21 @@
 
 ## 0.1.15
 
+- Removes a double reversal of the directed tilt axis. `TiltAxisAngles` are now the source
+  `.xf` polar rotation DIRECTLY (~-95.5° for tomo2), matching Warp's official
+  `TiltSeries.ImportAlignments` (`EulerFromMatrix` assigned straight); the previous `+180°`
+  adjustment (added because the tilt angles are negated) double-reversed the axis, since the
+  `.xf` branch is already the reversed direction relative to the +84.5° branch. No `+180°`, no
+  branch normalisation to 84.1 (kept only as align.com estimate/provenance/fallback);
+  `axis_direction_adjustment_deg = 0`. OFFSET is now baked into `Angles = sign*(tlt+OFFSET)`
+  with `LevelAngleY = 0` (applied once, sharing the tilt rotation order with `LevelAngleX`
+  rather than a separate global rotation); tilt angles come from `tomo2.tlt`. Effective Warp
+  tilt stays `-(tlt+OFFSET)` (−55.88°…+66.28°). The `-inv(A)@d` offsets, tilt-angle sign (−1),
+  SHIFT (Warp `[0,0,+17.82]`, det +1 frame), `LevelAngleX = -1.82°` and view order are
+  unchanged. Records the per-axis half-pixel rounding correction (4092/8=511.5→512 → Y pixel
+  17.583 Å vs X 17.6 Å). Convention version bumped to 2 (invalidates conversion/reconstruction/
+  export caches; a fixed-84.1 or `+180` marker is stale).
+
 - Fixes two angular errors in the IMOD->Warp conversion. (1) The tilt-angle sign was inverted
   to -1 without reversing the tilt-axis DIRECTION; since `rotation(axis,theta) == rotation(-axis,
   -theta)`, the axis now gets a +180 deg reversal for sign -1. (2) `TiltAxisAngles` were a fixed

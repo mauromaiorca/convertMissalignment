@@ -216,9 +216,10 @@ class ConverterEndToEndTests(unittest.TestCase):
 
     def test_angles_negated_once_and_offset_signed_once(self):
         ts, manifest = self._run(sign=-1)
-        self.assertTrue(np.allclose(list(ts.angles.tolist()), [-a for a in self.raw_angles]))
+        # OFFSET baked into Angles = sign*(tlt+OFFSET); LevelAngleY = 0 (OFFSET applied once)
+        self.assertTrue(np.allclose(list(ts.angles.tolist()), [-(a - 11.5) for a in self.raw_angles]))
         self.assertNotEqual(list(ts.angles.tolist()), self.raw_angles[::-1])   # not reversed
-        self.assertAlmostEqual(float(ts.level_angle_y), 11.5, places=5)        # sign * OFFSET, once
+        self.assertAlmostEqual(float(ts.level_angle_y), 0.0, places=6)
         # LevelAngleX unaffected by the tilt-angle sign
         self.assertAlmostEqual(float(ts.level_angle_x), -1.82, places=5)
 
@@ -231,8 +232,9 @@ class ConverterEndToEndTests(unittest.TestCase):
 
     def test_sign_plus_one_keeps_imod_sign(self):
         ts, manifest = self._run(sign=1)
-        self.assertTrue(np.allclose(list(ts.angles.tolist()), self.raw_angles))
-        self.assertAlmostEqual(float(ts.level_angle_y), -11.5, places=5)
+        # sign +1: Angles = +(tlt+OFFSET); LevelAngleY = 0 (OFFSET still baked once)
+        self.assertTrue(np.allclose(list(ts.angles.tolist()), [a - 11.5 for a in self.raw_angles]))
+        self.assertAlmostEqual(float(ts.level_angle_y), 0.0, places=6)
         self.assertEqual(manifest["tilt_angle_convention"]["imod_to_warp_sign"], 1)
 
     def test_per_view_arrays_retain_source_association(self):

@@ -67,15 +67,16 @@ def apply_imod_positioning(ts, positioning, *, level_angle_x_sign: int = -1,
                            imod_to_warp_tilt_angle_sign: int = -1) -> dict:
     """Apply IMOD tilt.com positioning to a Warp ``TiltSeries`` (mandatory-policy mapping).
 
-    OFFSET    -> ``ts.level_angle_y = imod_to_warp_tilt_angle_sign * OFFSET`` (the SAME sign as
-                 the angles, applied EXACTLY ONCE; ts.angles already holds the signed angles).
+    OFFSET    -> baked into ``ts.angles = sign*(tlt+OFFSET)`` by the caller; here
+                 ``ts.level_angle_y = 0`` (OFFSET applied EXACTLY ONCE, sharing the tilt rotation
+                 order with LevelAngleX rather than a separate global rotation).
     XAXISTILT -> ``ts.level_angle_x = level_angle_x_sign * XAXISTILT`` (sign confirmed only by
                  the cluster validation script; NOT inferred from field names)
     SHIFT     -> object-space translation via ``ts.apply_tomogram_shift_3d([x, y, z] Angstrom)``,
                  composed with (not replacing) the existing .xf-derived per-tilt offsets.
 
-    Never sets both ``ts.angles += OFFSET`` and ``ts.level_angle_y``. Raises if a non-zero
-    SHIFT is requested but the installed warpylib ``TiltSeries`` cannot represent it.
+    OFFSET is never applied twice: it is in ``ts.angles`` and ``ts.level_angle_y`` stays 0.
+    Raises if a non-zero SHIFT is requested but the installed warpylib cannot represent it.
     """
     import torch
 
@@ -83,13 +84,13 @@ def apply_imod_positioning(ts, positioning, *, level_angle_x_sign: int = -1,
     tilt_angle_sign = validate_tilt_angle_sign(imod_to_warp_tilt_angle_sign)
     offset = float(positioning.tilt_angle_offset_deg)
     xaxis = float(positioning.x_axis_tilt_deg)
-    warp_level_angle_y = tilt_angle_sign * offset
-    ts.level_angle_y = warp_level_angle_y              # OFFSET * sign; ts.angles already signed
+    ts.level_angle_y = 0.0                             # OFFSET is baked into ts.angles
     ts.level_angle_x = float(level_angle_x_sign) * xaxis
     applied = {
         "imod_offset_deg": offset,
         "imod_to_warp_tilt_angle_sign": tilt_angle_sign,
-        "warp_level_angle_y_deg": warp_level_angle_y,
+        "offset_representation": "baked_into_angles",
+        "warp_level_angle_y_deg": 0.0,
         "warp_level_angle_x_deg": float(level_angle_x_sign) * xaxis,
         "level_angle_x_sign": int(level_angle_x_sign),
         "level_angle_x_sign_validated": False,          # confirmed by validate_warp_positioning.py
@@ -246,6 +247,7 @@ def process_tilt_series(
     warp_volume_shape_xyz = tuple(volume_frame["current_shape_warp_xyz"])
 
     final_pixel_size = input_pixel_size
+    downsampling_correction = None
     pre_rescale_height, pre_rescale_width = map(int, images.shape[-2:])
     if output_pixel_size is not None and output_pixel_size > input_pixel_size:
         factor = float(output_pixel_size) / input_pixel_size
@@ -253,7 +255,23 @@ def process_tilt_series(
         scaled_height = max(2, int(round(pre_rescale_height / factor / 2)) * 2)
         if (scaled_height, scaled_width) != (pre_rescale_height, pre_rescale_width):
             images = rescale(images, size=(scaled_height, scaled_width))
+        # Isotropic physical downsample; the declared pixel is from X (5760/8=720 -> 17.6). Y can
+        # round (e.g. 4092/8=511.5 -> 512), so its EFFECTIVE pixel differs slightly. Record the
+        # per-axis factors + half-pixel rounding instead of declaring both axes exactly 17.6.
         final_pixel_size = input_pixel_size * pre_rescale_width / scaled_width
+        eff_px_x = input_pixel_size * pre_rescale_width / scaled_width
+        eff_px_y = input_pixel_size * pre_rescale_height / scaled_height
+        downsampling_correction = {
+            "isotropic_physical_downsample": True,
+            "input_shape_xy": [pre_rescale_width, pre_rescale_height],
+            "output_shape_xy": [scaled_width, scaled_height],
+            "ideal_factor": factor,
+            "ideal_output_xy": [pre_rescale_width / factor, pre_rescale_height / factor],
+            "actual_factor_xy": [pre_rescale_width / scaled_width, pre_rescale_height / scaled_height],
+            "effective_pixel_size_xy_A": [eff_px_x, eff_px_y],
+            "declared_pixel_size_A": final_pixel_size,   # X (isotropic Warp voxel)
+            "even_size_rounding_note": "e.g. 4092/8=511.5 -> 512 (+0.5 px); Y pixel != X pixel",
+        }
     elif output_pixel_size is not None and output_pixel_size < input_pixel_size - 1e-6:
         raise ValueError(
             f"output pixel size {output_pixel_size} is smaller than input {input_pixel_size}; "
@@ -265,19 +283,21 @@ def process_tilt_series(
     stack_path = stack_dir / f"{folder_name}.st"
     xml_path = output_directory / f"{folder_name}.xml"
 
-    # Angles receive the SAME validated sign, applied EXACTLY ONCE (view order preserved:
-    # warp row i == source stack section i). OFFSET gets it below (LevelAngleY); the raw .tlt
-    # is never negated on disk and OFFSET is not baked in here.
-    warp_angles = [tilt_angle_sign * float(a) for a in tilt_angles]
+    # Angles = sign * (tlt + OFFSET), applied EXACTLY ONCE (view order preserved: warp row i ==
+    # source section i). OFFSET is baked into the per-view Angles (LevelAngleY = 0) so it shares
+    # the tilt rotation order with a non-zero LevelAngleX; the raw .tlt on disk is untouched. The
+    # tlt comes from tomo2.tlt (the resolved final tilt file), never .rawtlt.
+    _offset_deg = float(positioning.tilt_angle_offset_deg) if positioning is not None else 0.0
+    warp_angles = [tilt_angle_sign * (float(a) + _offset_deg) for a in tilt_angles]
 
     ts = TiltSeries(path=str(xml_path), n_tilts=n_tilts)
     ts.angles = torch.tensor(warp_angles, dtype=torch.float32)
 
-    # Per-view Warp TiltAxisAngle from EACH source .xf rotation (never a fixed align.com value),
-    # coupled to the tilt-angle sign: rotation(axis,theta) == rotation(-axis,-theta), so sign -1
-    # reverses the tilt-axis direction by 180 deg. axis_input_angle (align.com, e.g. 84.1) is only
-    # the branch reference + fallback + provenance. The aligned-frame condition keeps its own
-    # per-view mapping (a separate mechanism, not the fixed-value error).
+    # Per-view Warp TiltAxisAngle = EACH source .xf polar rotation DIRECTLY (never a fixed
+    # align.com value; matches Warp's official importer). No 180 deg adjustment: the .xf branch
+    # (~-95.5) is already the directed axis for the negated tilt angles. axis_input_angle
+    # (align.com, e.g. 84.1) is provenance/fallback only. The aligned-frame condition keeps its
+    # own per-view mapping (a separate mechanism, not the fixed-value error).
     source_axis_angles_deg: list[float] = []
     axis_direction_adjustments_deg: list[float] = []
     if axis_frame == "aligned":
@@ -350,8 +370,8 @@ def process_tilt_series(
             "initial_axis_estimate_deg": float(axis_input_angle),   # align.com; reference/fallback only
             "imod_to_warp_tilt_angle_sign": int(tilt_angle_sign),
             "source_axis_angle_deg": source_axis_angles_deg,        # per-view IMOD .xf rotation
-            "axis_direction_adjustment_deg": axis_direction_adjustments_deg,  # 180 for sign -1
-            "final_warp_axis_angle_deg": [float(a) for a in axis_angles],
+            "axis_direction_adjustment_deg": axis_direction_adjustments_deg,  # 0 (no reversal)
+            "final_warp_axis_angle_deg": [float(a) for a in axis_angles],     # == source .xf rotation
             "tilt_axis_angles_hash": hashlib.sha256(
                 json.dumps([round(float(a), 6) for a in axis_angles]).encode()).hexdigest(),
         },
@@ -410,6 +430,8 @@ def process_tilt_series(
         tilt_angle_convention_manifest, tilt_view_order_identity)
     manifest["tilt_view_order"] = tilt_view_order_identity(n_tilts)
     manifest["tilt_angle_convention"] = tilt_angle_convention_manifest(tilt_angle_sign)
+    if downsampling_correction is not None:
+        manifest["downsampling_correction"] = downsampling_correction
 
     if positioning is not None:
         manifest["imod_positioning"] = positioning.to_manifest()

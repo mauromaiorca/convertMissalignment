@@ -38,10 +38,11 @@ import numpy as np
 
 CenterConvention = Literal["imod", "pixel-center", "size-half"]
 
-# Bump when the Warp TiltAxisAngle computation changes. v1: per-view axis extracted from each
-# source .xf via polar decomposition, coupled to the tilt-sign 180 deg axis reversal (was a
-# fixed align.com value). A conversion marker without this version is stale.
-WARP_AXIS_ANGLE_CONVENTION_VERSION = 1
+# Bump when the Warp TiltAxisAngle / OFFSET representation changes. v2: per-view axis = the
+# source .xf polar rotation DIRECTLY (no 180 deg adjustment, no branch normalisation; matches
+# Warp's official importer), and OFFSET is baked into Angles with LevelAngleY = 0. A marker
+# without this version (fixed 84.1, or the v1 +180 branch) is stale.
+WARP_AXIS_ANGLE_CONVENTION_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -470,23 +471,20 @@ def imod_xf_rotation_angle_deg(matrix: np.ndarray) -> float:
 def warp_tilt_axis_angle_from_xf(
     matrix: np.ndarray,
     *,
-    angle_sign: int,
-    reference_angle_deg: float,
+    angle_sign: int = -1,
+    reference_angle_deg: float = 84.1,
 ) -> tuple[float, float, float]:
-    """Per-view Warp ``TiltAxisAngle`` from an IMOD ``.xf`` rotation, coupled to the tilt sign.
+    """Per-view Warp ``TiltAxisAngle`` = the source ``.xf`` polar rotation, directly.
 
-    Because ``rotation(axis, theta) == rotation(-axis, -theta)``, negating the tilt angles
-    (``angle_sign == -1``) requires reversing the tilt-axis DIRECTION by 180 deg; ``+1`` keeps
-    it. The 360-branch nearest ``reference_angle_deg`` (the align.com estimate, e.g. 84.1) is
-    selected; NO modulo-180 collapse (the directed axis matters once the sign is inverted).
-
-    Returns ``(warp_axis_deg, imod_axis_deg, axis_direction_adjustment_deg)``.
+    This matches Warp's official ``TiltSeries.ImportAlignments`` (``EulerFromMatrix`` assigned
+    straight to ``TiltAxisAngles``). NO 180 deg adjustment and NO branch normalisation to the
+    align.com estimate: the ``.xf`` rotation branch (e.g. ~-95.5) is ALREADY the directed axis
+    that matches the negated tilt angles (``rotation(axis,theta)==rotation(-axis,-theta)``);
+    adding 180 deg would DOUBLE-reverse it. ``angle_sign``/``reference_angle_deg`` are retained
+    for provenance/fallback only. Returns ``(warp_axis_deg, imod_axis_deg, adjustment_deg=0)``.
     """
     imod_axis = imod_xf_rotation_angle_deg(matrix)
-    adjust = 180.0 if int(angle_sign) == -1 else 0.0
-    warp_axis = imod_axis + adjust
-    warp_axis += 360.0 * round((float(reference_angle_deg) - warp_axis) / 360.0)
-    return float(warp_axis), float(imod_axis), float(adjust)
+    return float(imod_axis), float(imod_axis), 0.0
 
 
 def regular_grid_points(
