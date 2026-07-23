@@ -242,6 +242,7 @@ def reconstruction_contract_hash(
     numeric_locale: str = "C",
     tilt_angle_sign: Optional[int] = None,
     positioning_hash: Optional[str] = None,
+    tilt_axis_angles_hash: Optional[str] = None,
 ) -> str:
     """Stable hash forcing reconstruction reuse only when every geometry-affecting
     input matches: tiling, requested angpix, normalisation policy, WarpTools version,
@@ -257,6 +258,7 @@ def reconstruction_contract_hash(
         "numeric_locale": numeric_locale,
         "tilt_angle_sign": None if tilt_angle_sign is None else int(tilt_angle_sign),
         "positioning_hash": positioning_hash,
+        "tilt_axis_angles_hash": tilt_axis_angles_hash,
     }
     blob = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()

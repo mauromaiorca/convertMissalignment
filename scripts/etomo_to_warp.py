@@ -19,6 +19,7 @@ Supported alignment modes
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -37,8 +38,10 @@ from imod_affine import (
     inverse_physical_map,
     read_xf,
     transform_axis_angle_raw_to_aligned,
+    warp_tilt_axis_angle_from_xf,
     write_xf,
 )
+from imod_affine import WARP_AXIS_ANGLE_CONVENTION_VERSION
 
 ALIGNMENT_MODES = (
     "identity",
@@ -270,13 +273,26 @@ def process_tilt_series(
     ts = TiltSeries(path=str(xml_path), n_tilts=n_tilts)
     ts.angles = torch.tensor(warp_angles, dtype=torch.float32)
 
+    # Per-view Warp TiltAxisAngle from EACH source .xf rotation (never a fixed align.com value),
+    # coupled to the tilt-angle sign: rotation(axis,theta) == rotation(-axis,-theta), so sign -1
+    # reverses the tilt-axis direction by 180 deg. axis_input_angle (align.com, e.g. 84.1) is only
+    # the branch reference + fallback + provenance. The aligned-frame condition keeps its own
+    # per-view mapping (a separate mechanism, not the fixed-value error).
+    source_axis_angles_deg: list[float] = []
+    axis_direction_adjustments_deg: list[float] = []
     if axis_frame == "aligned":
         axis_angles = [
             transform_axis_angle_raw_to_aligned(axis_input_angle, matrix)
             for matrix in axis_matrices
         ]
     else:
-        axis_angles = [float(axis_input_angle)] * n_tilts
+        axis_angles = []
+        for matrix in axis_matrices:
+            warp_axis, imod_axis, adjust = warp_tilt_axis_angle_from_xf(
+                matrix, angle_sign=tilt_angle_sign, reference_angle_deg=axis_input_angle)
+            axis_angles.append(warp_axis)
+            source_axis_angles_deg.append(imod_axis)
+            axis_direction_adjustments_deg.append(adjust)
     ts.tilt_axis_angles = torch.tensor(axis_angles, dtype=torch.float32)
 
     # IMOD tilt.com positioning (OFFSET/XAXISTILT/SHIFT). Applied after the raw angles and
@@ -288,6 +304,18 @@ def process_tilt_series(
         warp_positioning_applied = apply_imod_positioning(
             ts, positioning, level_angle_x_sign=level_angle_x_sign,
             imod_to_warp_tilt_angle_sign=tilt_angle_sign)
+        # OFFSET applied EXACTLY ONCE: effective Warp angle == sign * (tlt + OFFSET). Angles
+        # hold sign*tlt (OFFSET not baked in); LevelAngleY holds sign*OFFSET. Guard against a
+        # future double application.
+        _offset = float(positioning.tilt_angle_offset_deg)
+        _level_y = float(warp_positioning_applied["warp_level_angle_y_deg"])
+        for _i, _tlt in enumerate(tilt_angles):
+            _effective_warp = warp_angles[_i] + _level_y
+            _expected = tilt_angle_sign * (float(_tlt) + _offset)
+            if abs(_effective_warp - _expected) > 1e-6:
+                raise AssertionError(
+                    f"effective Warp angle {_effective_warp} != sign*(tlt+OFFSET) {_expected} "
+                    f"at view {_i} (OFFSET applied twice or baked into Angles)")
 
     height, width = map(int, images.shape[-2:])
     ts.image_dimensions_physical = torch.tensor(
@@ -315,6 +343,18 @@ def process_tilt_series(
         "raw_tilt_axis_angle_deg": float(tilt_axis_angle),
         "axis_angle_before_residual_affine_deg": float(axis_input_angle),
         "warp_tilt_axis_angles_deg": axis_angles,
+        "tilt_axis_angle_provenance": {
+            "warp_axis_angle_convention_version": WARP_AXIS_ANGLE_CONVENTION_VERSION,
+            "source": ("per_view_xf_polar_rotation" if axis_frame != "aligned"
+                       else "per_view_raw_to_aligned_axis_transform"),
+            "initial_axis_estimate_deg": float(axis_input_angle),   # align.com; reference/fallback only
+            "imod_to_warp_tilt_angle_sign": int(tilt_angle_sign),
+            "source_axis_angle_deg": source_axis_angles_deg,        # per-view IMOD .xf rotation
+            "axis_direction_adjustment_deg": axis_direction_adjustments_deg,  # 180 for sign -1
+            "final_warp_axis_angle_deg": [float(a) for a in axis_angles],
+            "tilt_axis_angles_hash": hashlib.sha256(
+                json.dumps([round(float(a), 6) for a in axis_angles]).encode()).hexdigest(),
+        },
         "input_stack": str(mrc_path.resolve()),
         "output_stack": str(stack_path.resolve()),
         "input_pixel_size_A": input_pixel_size,

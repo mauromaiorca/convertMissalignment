@@ -2,6 +2,23 @@
 
 ## 0.1.15
 
+- Fixes two angular errors in the IMOD->Warp conversion. (1) The tilt-angle sign was inverted
+  to -1 without reversing the tilt-axis DIRECTION; since `rotation(axis,theta) == rotation(-axis,
+  -theta)`, the axis now gets a +180 deg reversal for sign -1. (2) `TiltAxisAngles` were a fixed
+  align.com value (`[84.1]*41`, introduced by the raw-frame `axis_angles = [axis_input_angle]*n`),
+  discarding the per-view `.xf` rotation; they are now extracted per view from each source `.xf`
+  via polar decomposition (`imod_affine.warp_tilt_axis_angle_from_xf`), branch-selected near the
+  align.com estimate (kept only as reference/fallback/provenance). For tomo2 this changes the
+  fixed 84.1 to per-view 84.277-84.700 (mean 84.505). OFFSET stays applied exactly once
+  (`Angles=sign*tlt`, `LevelAngleY=sign*OFFSET`, effective `= sign*(tlt+OFFSET)`), guarded by a
+  conversion-time assertion; view order stays identity; translation-only refinement keeps the
+  source `.xf` rotation. The per-view axis provenance (source axis, sign, 180 deg adjustment,
+  final axis) + a hash of all final Warp axis angles + `WARP_AXIS_ANGLE_CONVENTION_VERSION` are
+  recorded in the conversion manifest and threaded into the conversion/reconstruction/export
+  cache identities (a fixed-84.1 marker is stale). The identity IMOD->Warp->IMOD round trip
+  preserves `.tlt`/`.xf` from the preserved source affine (< 1e-6 / < 1e-4). The tilt-angle sign,
+  SHIFT, XAXISTILT, `.xf` translation import and volume-frame permutation are unchanged.
+
 - Corrects the IMOD reconstruction SHIFT into the Warp volume frame. The tilt-angle sign was
   changed to -1 without applying the corresponding signed 3-D frame transform to SHIFT. SHIFT
   is now built in native IMOD-MRC axis order `[sx_A, sz_A, 0]` (SHIFT Z is thickness -> MRC Y)

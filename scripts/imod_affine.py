@@ -38,6 +38,11 @@ import numpy as np
 
 CenterConvention = Literal["imod", "pixel-center", "size-half"]
 
+# Bump when the Warp TiltAxisAngle computation changes. v1: per-view axis extracted from each
+# source .xf via polar decomposition, coupled to the tilt-sign 180 deg axis reversal (was a
+# fixed align.com value). A conversion marker without this version is stale.
+WARP_AXIS_ANGLE_CONVENTION_VERSION = 1
+
 
 @dataclass(frozen=True)
 class AffineDiagnostics:
@@ -454,6 +459,36 @@ def diagnose_matrix(matrix: np.ndarray) -> AffineDiagnostics:
     )
 
 
+def imod_xf_rotation_angle_deg(matrix: np.ndarray) -> float:
+    """In-plane rotation of an IMOD ``.xf`` linear matrix via polar decomposition (deg).
+
+    Scale-unbiased: the isotropic scale does not bias the angle. This is the project's
+    validated extraction (same SVD/atan2 as :func:`diagnose_matrix`)."""
+    return float(diagnose_matrix(matrix).rotation_deg)
+
+
+def warp_tilt_axis_angle_from_xf(
+    matrix: np.ndarray,
+    *,
+    angle_sign: int,
+    reference_angle_deg: float,
+) -> tuple[float, float, float]:
+    """Per-view Warp ``TiltAxisAngle`` from an IMOD ``.xf`` rotation, coupled to the tilt sign.
+
+    Because ``rotation(axis, theta) == rotation(-axis, -theta)``, negating the tilt angles
+    (``angle_sign == -1``) requires reversing the tilt-axis DIRECTION by 180 deg; ``+1`` keeps
+    it. The 360-branch nearest ``reference_angle_deg`` (the align.com estimate, e.g. 84.1) is
+    selected; NO modulo-180 collapse (the directed axis matters once the sign is inverted).
+
+    Returns ``(warp_axis_deg, imod_axis_deg, axis_direction_adjustment_deg)``.
+    """
+    imod_axis = imod_xf_rotation_angle_deg(matrix)
+    adjust = 180.0 if int(angle_sign) == -1 else 0.0
+    warp_axis = imod_axis + adjust
+    warp_axis += 360.0 * round((float(reference_angle_deg) - warp_axis) / 360.0)
+    return float(warp_axis), float(imod_axis), float(adjust)
+
+
 def regular_grid_points(
     shape_xy: Sequence[int | float], nx: int = 17, ny: int = 13
 ) -> np.ndarray:
@@ -488,7 +523,9 @@ __all__ = [
     "forward_points_pixels",
     "homogeneous_to_xf",
     "image_center_xy",
+    "imod_xf_rotation_angle_deg",
     "inverse_physical_map",
+    "warp_tilt_axis_angle_from_xf",
     "inverse_points_pixels",
     "movement_at_raw_absolute_physical",
     "read_xf",

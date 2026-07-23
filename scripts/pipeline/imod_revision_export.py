@@ -118,6 +118,7 @@ def _read_conversion_contract(sources: "RevisionSources") -> dict:
             "imod_to_warp_tilt_angle_sign": data.get("imod_to_warp_tilt_angle_sign"),
             "tilt_view_order": data.get("tilt_view_order"),
             "tilt_angle_convention": data.get("tilt_angle_convention"),
+            "tilt_axis_angles_hash": data.get("tilt_axis_angles_hash"),
         }
     return {}
 
@@ -224,7 +225,8 @@ def export_revised_imod(sources: RevisionSources, *, config: dict, layout: RunLa
         positioning_hash=positioning.get("positioning_hash", "") if isinstance(positioning, dict) else "",
         volume_frame_contract_version=2, policy=policy,
         imod_version=(software_versions or {}).get("imod", ""),
-        tilt_angle_sign=tilt_angle_sign, view_mapping=view_order.get("mapping", "identity"))
+        tilt_angle_sign=tilt_angle_sign, view_mapping=view_order.get("mapping", "identity"),
+        tilt_axis_angles_hash=conv.get("tilt_axis_angles_hash"))
 
     revision = build_revision_from_sources(
         sources, config=config, policy=policy, backend=backend,

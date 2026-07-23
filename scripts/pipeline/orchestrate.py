@@ -29,7 +29,8 @@ from typing import Any, Callable
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from imod_affine import read_xf, write_xf, xf_to_homogeneous, homogeneous_to_xf  # noqa: E402
+from imod_affine import (  # noqa: E402
+    WARP_AXIS_ANGLE_CONVENTION_VERSION, read_xf, write_xf, xf_to_homogeneous, homogeneous_to_xf)
 from multiresolution import Grid2D, build_plan  # noqa: E402
 from multiresolution import transfer as _T  # noqa: E402
 
@@ -656,7 +657,8 @@ def orchestrate(*, config: dict, out_dir: Path, data_dir: Path | None, basename:
         do("warp_convert", _hash_file(stage_stack.path),
            _hash_obj(["etomo_to_warp", warp_alignment_mode, axis_frame, tilt_axis,
                       _hash_file(xf_staged) if xf_staged else "identity",
-                      positioning_hash, level_angle_x_sign, imod_tilt_angle_sign]),
+                      positioning_hash, level_angle_x_sign, imod_tilt_angle_sign,
+                      "warp_axis_convention_v", WARP_AXIS_ANGLE_CONVENTION_VERSION]),
            list(training_dir.glob("*.xml")) or [training_dir / "_converted.marker"], _mk_warp)
         warp_state["converted_locally"] = True
         def _mk_warp_validate():

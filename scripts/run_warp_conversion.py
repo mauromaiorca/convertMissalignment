@@ -114,6 +114,11 @@ def main() -> int:
     # A pre-contract marker records no sign; default it to the historical +1 so it is treated
     # as stale versus the -1 default and reconverted.
     sign_is_current = int(validation.get("imod_to_warp_tilt_angle_sign", 1)) == manifest_tilt_angle_sign
+    # Per-view TiltAxisAngle convention: a marker made with the fixed align.com value (no version)
+    # defaults to 0 and is stale versus the current per-view-.xf convention.
+    from imod_affine import WARP_AXIS_ANGLE_CONVENTION_VERSION
+    axis_convention_current = (
+        int(validation.get("warp_axis_angle_convention_version", 0)) == WARP_AXIS_ANGLE_CONVENTION_VERSION)
     conversion_is_current = (
         (training_dir / "_converted.marker").is_file()
         and bool(list(training_dir.glob("*.xml")))
@@ -121,7 +126,14 @@ def main() -> int:
         and bool(validation.get("warp_volume_shape_xyz"))
         and positioning_is_current
         and sign_is_current
+        and axis_convention_current
     )
+    if (training_dir / "_converted.marker").is_file() and not axis_convention_current:
+        print(
+            "[warp-conversion] tilt-axis-angle convention changed "
+            f"(marker v{validation.get('warp_axis_angle_convention_version', 0)} != "
+            f"v{WARP_AXIS_ANGLE_CONVENTION_VERSION}); reconverting per-view axis angles"
+        )
     if (training_dir / "_converted.marker").is_file() and not sign_is_current:
         print(
             "[warp-conversion] tilt-angle sign changed "
@@ -297,6 +309,13 @@ def main() -> int:
         "imod_to_warp_tilt_angle_sign": imod_tilt_angle_sign,
         "tilt_view_order": tilt_view_order_identity(n_t),
         "tilt_angle_convention": tilt_angle_convention_manifest(imod_tilt_angle_sign),
+        # per-view TiltAxisAngle convention + hash of all final Warp axis angles (cache identity)
+        "warp_axis_angle_convention_version": int(
+            (conversion_manifest.get("tilt_axis_angle_provenance") or {}).get(
+                "warp_axis_angle_convention_version", 0)),
+        "tilt_axis_angles_hash": (conversion_manifest.get("tilt_axis_angle_provenance") or {}).get(
+            "tilt_axis_angles_hash"),
+        "warp_tilt_axis_angles_deg": conversion_manifest.get("warp_tilt_axis_angles_deg"),
         "volume_invariant_ok": True}, indent=2) + "\n")
     _publish_v8_dataset(requested_training_dir, man)
     print(f"[warp-conversion] OK: {len(xmls)} XML(s) in {training_dir} (validated)")
