@@ -2,6 +2,16 @@
 
 ## 0.1.15
 
+- Fixes `miss-alignment: command not found` in the generated MissAlignment sbatch. The activation
+  block loaded the `missalign` module (which supplies `miss-alignment` from its own conda env) and
+  THEN sourced `[cluster].environment`'s `bin/activate`; a conda activation rebuilds `PATH` from
+  scratch, so it silently dropped the module-provided env and the job died at the
+  `miss-alignment` call with rc=127 after printing a full, healthy-looking environment report.
+  The block now records the module-provided `miss-alignment` location before the activation and
+  restores it afterwards if the activation lost it (no-op when the modules never supplied it), and
+  emits an explicit warning when `miss-alignment` is still unreachable instead of failing 20 lines
+  later with a bare "command not found".
+
 - Converts the align.com `RotationAngle` into Warp's tilt-axis convention instead of copying it
   verbatim. The two are measured on OPPOSITE sides of the image vertical: with `alpha` the
   tilt-axis azimuth from detector `+X`, IMOD's `RotationAngle = 90 - alpha` while Warp's

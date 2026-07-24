@@ -258,13 +258,24 @@ def _missalignment_activation(cluster) -> str:
         out.append(f'module load {shlex.quote(_m)} 2>/dev/null || true')
     if getattr(cluster, "environment", None):
         env = cluster.environment
+        # A conda `activate` REBUILDS PATH and drops whatever the missalign/warp MODULES put
+        # there, so `miss-alignment` (provided by the missalign module's own env) disappears and
+        # the job dies later with `miss-alignment: command not found`. Remember the
+        # module-provided location first, then put it back if the activation lost it.
+        out.append('__MA_BIN="$(command -v miss-alignment 2>/dev/null || true)"; __MA_DIR="${__MA_BIN%/*}"')
         out.append(f'if [ -f {shlex.quote(env + "/bin/activate")} ]; then source {shlex.quote(env + "/bin/activate")}; '
                    f'else export PATH={shlex.quote(env + "/bin")}:"$PATH"; fi')
+        out.append('if [ -n "${__MA_DIR:-}" ] && ! command -v miss-alignment >/dev/null 2>&1; then '
+                   'export PATH="$__MA_DIR:$PATH"; '
+                   'echo "[env] restored module-provided miss-alignment: $__MA_DIR"; fi')
     if getattr(cluster, "omp_num_threads", None):
         out.append(f'export OMP_NUM_THREADS={cluster.omp_num_threads}')
     if getattr(cluster, "cuda_visible_devices", None):
         out.append(f'export CUDA_VISIBLE_DEVICES={cluster.cuda_visible_devices}')
     out.append("which miss-alignment || true; which WarpTools || true; which WarpWorker || true")
+    out.append('command -v miss-alignment >/dev/null 2>&1 || echo "[env] WARNING: miss-alignment is NOT '
+               'on PATH after activation; the [cluster].environment activation probably overrode the '
+               'missalign module. The run will fail when it invokes miss-alignment." >&2')
     out.append("")
     return "\n".join(out) + "\n"
 
