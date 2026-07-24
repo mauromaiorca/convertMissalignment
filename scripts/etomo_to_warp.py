@@ -36,6 +36,7 @@ from imod_affine import (
     build_movement_grid_values,
     diagnose_matrix,
     inverse_physical_map,
+    imod_rotation_angle_to_warp_axis_angle,
     read_xf,
     transform_axis_angle_raw_to_aligned,
     write_xf,
@@ -293,18 +294,21 @@ def process_tilt_series(
     ts.angles = torch.tensor(warp_angles, dtype=torch.float32)
 
     # Warp TiltAxisAngle = the FIXED align.com axis (axis_input_angle) for every view in the raw
-    # path. The per-view .xf axis extraction + direction inversion (the +180 / raw-IMOD-layout / A.T
-    # branches -> ~+84.5 / ~-95.5 / ~+95.5) is REVERTED: it repeatedly reversed the tilt-axis
-    # direction (a `/` slope became a `\`). This restores the behaviour prior to per-view extraction
-    # (commit 022bc22). The aligned frame keeps its own per-view raw->aligned transform (a separate
-    # mechanism that was present before the inversion work and is unaffected by it).
+    # path -- but CONVERTED to Warp's convention (90 + alpha) from IMOD's (90 - alpha), see
+    # imod_rotation_angle_to_warp_axis_angle. Per-view .xf extraction stays REVERTED (the +180 /
+    # raw-IMOD-layout / A.T branches were all rejected). The aligned frame keeps its own per-view
+    # raw->aligned transform (a separate mechanism, unaffected).
     if axis_frame == "aligned":
         axis_angles = [
             transform_axis_angle_raw_to_aligned(axis_input_angle, matrix)
             for matrix in axis_matrices
         ]
     else:
-        axis_angles = [float(axis_input_angle)] * n_tilts
+        # CONVERT the align.com RotationAngle (90 - alpha) into Warp's convention (90 + alpha)
+        # instead of copying it verbatim: the two are measured on opposite sides of the image
+        # vertical, so a verbatim copy REFLECTS the axis (error 2*alpha ~ 11 deg for tomo2).
+        warp_axis_angle_deg = imod_rotation_angle_to_warp_axis_angle(axis_input_angle)
+        axis_angles = [warp_axis_angle_deg] * n_tilts
     ts.tilt_axis_angles = torch.tensor(axis_angles, dtype=torch.float32)
 
     # IMOD tilt.com positioning (OFFSET/XAXISTILT/SHIFT). Applied after the raw angles and
@@ -357,12 +361,17 @@ def process_tilt_series(
         "warp_tilt_axis_angles_deg": axis_angles,
         "tilt_axis_angle_provenance": {
             "warp_axis_angle_convention_version": WARP_AXIS_ANGLE_CONVENTION_VERSION,
-            "source": ("fixed_aligncom_axis" if axis_frame != "aligned"
+            "source": ("fixed_aligncom_axis_converted_to_warp_convention"
+                       if axis_frame != "aligned"
                        else "per_view_raw_to_aligned_axis_transform"),
             "initial_axis_estimate_deg": float(axis_input_angle),   # align.com RotationAngle
             "imod_to_warp_tilt_angle_sign": int(tilt_angle_sign),
-            # Per-view .xf axis extraction + direction inversion reverted to the fixed align.com axis.
+            # Per-view .xf axis extraction stays reverted; the fixed axis is CONVERTED, not copied:
+            # IMOD RotationAngle = 90 - alpha, Warp TiltAxisAngle = 90 + alpha => warp = 180 - imod.
             "per_view_xf_axis_extraction_reverted": axis_frame != "aligned",
+            "axis_convention_conversion": ("imod_rotation_angle_90_minus_alpha"
+                                           "__to__warp_axis_angle_90_plus_alpha__supplement"
+                                           if axis_frame != "aligned" else "none"),
             "final_warp_axis_angle_deg": [float(a) for a in axis_angles],
             "tilt_axis_angles_hash": hashlib.sha256(
                 json.dumps([round(float(a), 6) for a in axis_angles]).encode()).hexdigest(),

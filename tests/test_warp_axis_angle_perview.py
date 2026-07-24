@@ -111,10 +111,11 @@ class ConverterEndToEndTests(unittest.TestCase):
             alignment_mode="translation", axis_frame="raw", grid_shape_xy=(5, 5),
             positioning=pos, imod_to_warp_tilt_angle_sign=-1)
         axis = list(ts.tilt_axis_angles.tolist())
-        # FIXED align.com axis: every view == 84.1, NO per-view variation, no -95.5/+95.5 inversion.
-        self.assertTrue(all(abs(a - 84.1) < 1e-5 for a in axis))
+        # FIXED axis, but CONVERTED to Warp's convention: IMOD RotationAngle 84.1 = 90 - alpha,
+        # Warp needs 90 + alpha = 180 - 84.1 = 95.9. No per-view variation.
+        self.assertTrue(all(abs(a - 95.9) < 1e-4 for a in axis))
         self.assertEqual(float(np.ptp(axis)), 0.0)               # no per-view variation
-        self.assertFalse(any(abs(a) > 90.0 for a in axis))       # NOT the ~95 (inverted) branches
+        self.assertFalse(any(abs(a - 84.1) < 1e-3 for a in axis))  # NOT the unconverted value
         # OFFSET baked into Angles = sign*(tlt+OFFSET); LevelAngleY = 0 (applied once)
         self.assertTrue(np.allclose(ts.angles.tolist(), [-(t - 11.5) for t in tlt], atol=1e-4))
         self.assertAlmostEqual(float(ts.level_angle_y), 0.0, places=6)
@@ -129,10 +130,11 @@ class ConverterEndToEndTests(unittest.TestCase):
         prov = man["tilt_axis_angle_provenance"]
         self.assertEqual(prov["initial_axis_estimate_deg"], 84.1)
         self.assertEqual(prov["imod_to_warp_tilt_angle_sign"], -1)
-        self.assertEqual(prov["source"], "fixed_aligncom_axis")
+        self.assertEqual(prov["source"], "fixed_aligncom_axis_converted_to_warp_convention")
         self.assertTrue(prov["per_view_xf_axis_extraction_reverted"])
-        self.assertTrue(all(abs(a - 84.1) < 1e-5 for a in prov["final_warp_axis_angle_deg"]))
-        self.assertEqual(prov["warp_axis_angle_convention_version"], 4)
+        self.assertIn("supplement", prov["axis_convention_conversion"])
+        self.assertTrue(all(abs(a - 95.9) < 1e-4 for a in prov["final_warp_axis_angle_deg"]))
+        self.assertEqual(prov["warp_axis_angle_convention_version"], 5)
         self.assertIn("tilt_axis_angles_hash", prov)
         self.assertNotIn("axis_direction_adjustment_deg", prov)   # per-view machinery gone
         self.assertEqual(man["warp_positioning_applied"]["offset_representation"], "baked_into_angles")

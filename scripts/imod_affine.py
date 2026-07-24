@@ -38,14 +38,15 @@ import numpy as np
 
 CenterConvention = Literal["imod", "pixel-center", "size-half"]
 
-# Bump when the Warp TiltAxisAngle / OFFSET representation changes. v4: REVERTED the per-view
-# .xf axis extraction entirely -- the raw path uses the FIXED align.com axis (axis_input_angle)
-# for every view, as it was prior to per-view extraction (commit 022bc22). The per-view
-# experiment reversed the tilt-axis direction (`/` vs `\`) across three branches: v1 added +180
-# (~+84.5), v2 read the raw IMOD layout atan2(A21,A11) (~-95.5), v3 read the A.T layout
-# atan2(A12,A11) (~+95.5) -- all rejected. OFFSET is still baked into Angles with LevelAngleY = 0.
-# A marker without this version (any per-view axis branch) is stale.
-WARP_AXIS_ANGLE_CONVENTION_VERSION = 4
+# Bump when the Warp TiltAxisAngle / OFFSET representation changes. v5: the raw path still uses a
+# FIXED axis (no per-view .xf extraction -- that experiment was reverted in v4), but the align.com
+# RotationAngle is now CONVERTED to Warp's convention instead of being copied verbatim:
+# IMOD RotationAngle = 90 - alpha, Warp TiltAxisAngle = 90 + alpha, so warp = 180 - rotation
+# (tomo2: 180 - 84.1 = 95.9). See :func:`imod_rotation_angle_to_warp_axis_angle`. v4 wrote the
+# unconverted 84.1, putting the assumed axis at -alpha instead of +alpha -- an in-plane error of
+# 2*alpha ~ 11 deg, which matched the observed rotation of the reconstruction. OFFSET is still
+# baked into Angles with LevelAngleY = 0. A marker without this version is stale.
+WARP_AXIS_ANGLE_CONVENTION_VERSION = 5
 
 
 @dataclass(frozen=True)
@@ -474,6 +475,32 @@ def imod_xf_rotation_angle_deg(matrix: np.ndarray) -> float:
     return float(diagnose_matrix(matrix).rotation_deg)
 
 
+def imod_rotation_angle_to_warp_axis_angle(rotation_angle_deg: float) -> float:
+    """IMOD align.com/mdoc ``RotationAngle`` -> Warp ``TiltAxisAngle`` (deg).
+
+    The two are measured on OPPOSITE sides of the image vertical, so copying one into the other
+    reflects the tilt axis instead of rotating it. Let ``alpha`` be the tilt-axis azimuth from the
+    detector ``+X`` axis. Then:
+
+    * IMOD ``RotationAngle = 90 - alpha``  (tomo2: 84.09 + 5.91 = 90.000 exactly)
+    * Warp  ``TiltAxisAngle = 90 + alpha`` (Warp's axis azimuth is ``90 + AxisAngle``)
+
+    so the conversion is the SUPPLEMENT::
+
+        warp = 90 + alpha = 90 + (90 - rotation) = 180 - rotation
+
+    For tomo2: ``180 - 84.1 = 95.9``. Three independent sources agree on ``alpha ~ 5.5``: the
+    ``.xf`` polar rotation (alpha = 5.4947, i.e. warp 95.4947), the ``.mdoc`` header
+    ``TiltAxisAngle = -174.09`` (the same directed raw-frame axis), and the stack geometry
+    (``newst.com`` emits a 512x720 aligned stack from a 720x512 binned raw stack, which is only
+    possible with the axis along the LONG detector direction). The residual ~0.4 deg between 95.9
+    and 95.4947 is align.com's initial estimate versus the refined tiltalign solution.
+
+    Writing the unconverted 84.1 puts the assumed axis at ``-alpha`` instead of ``+alpha`` -- wrong
+    by ``2*alpha ~ 11 deg``, which is the observed in-plane rotation of the reconstruction."""
+    return 180.0 - float(rotation_angle_deg)
+
+
 def regular_grid_points(
     shape_xy: Sequence[int | float], nx: int = 17, ny: int = 13
 ) -> np.ndarray:
@@ -508,6 +535,7 @@ __all__ = [
     "forward_points_pixels",
     "homogeneous_to_xf",
     "image_center_xy",
+    "imod_rotation_angle_to_warp_axis_angle",
     "imod_xf_rotation_angle_deg",
     "inverse_physical_map",
     "inverse_points_pixels",

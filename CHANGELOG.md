@@ -2,6 +2,23 @@
 
 ## 0.1.15
 
+- Converts the align.com `RotationAngle` into Warp's tilt-axis convention instead of copying it
+  verbatim. The two are measured on OPPOSITE sides of the image vertical: with `alpha` the
+  tilt-axis azimuth from detector `+X`, IMOD's `RotationAngle = 90 - alpha` while Warp's
+  `TiltAxisAngle = 90 + alpha`. A verbatim copy therefore REFLECTS the axis rather than rotating
+  it, leaving the reconstruction rotated in-plane by `2*alpha` (~11.8 deg for tomo2, matching the
+  observed residual). The conversion is the supplement, `warp = 180 - rotation`
+  (`imod_rotation_angle_to_warp_axis_angle`): tomo2 84.1 -> **95.9**. Self-consistency check: feeding
+  the tiltalign-refined 84.505 returns 95.495, exactly the value the `.xf` yields independently
+  (`alpha = 5.4947`); three sources agree on `alpha ~ 5.5` -- the `.xf` polar rotation, the `.mdoc`
+  header `TiltAxisAngle = -174.09`, and the stack geometry (`newst.com` emits a 512x720 aligned
+  stack from a 720x512 binned raw stack, only possible with the axis along the long detector
+  direction). The axis stays FIXED for all views (per-view `.xf` extraction remains reverted);
+  everything else is unchanged: tilt-angle sign -1, view order identity, OFFSET +11.5 (baked,
+  `LevelAngleY=0`), `LevelAngleX=-1.82`, SHIFT, volume orientation, `offsets_xy_A`.
+  `WARP_AXIS_ANGLE_CONVENTION_VERSION` -> 5 (invalidates Warp XML / conversion / reconstruction /
+  export caches).
+
 - Reverts the per-view `.xf` tilt-axis extraction entirely. The raw path once again writes the
   FIXED align.com axis (`axis_input_angle` / `tilt_axis_angle_deg`, ~+84° for tomo2) to every
   view -- the behaviour prior to per-view extraction (commit 022bc22). The per-view experiment
